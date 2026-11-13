@@ -84,6 +84,7 @@ private fun showWindow() {
     val folderField = JTextField(outputDirectory.toString()).apply { isEditable = false }
     val log = JTextArea("Only download audio you own or are authorized to use.\n")
         .apply { isEditable = false; lineWrap = true; wrapStyleWord = true; background = darker; foreground = textColor }
+    val logScroll = JScrollPane(log)
     val downloadButton = JButton("Download MP3").apply { isOpaque = true; background = accent; foreground = Color.WHITE }
     val folderButton = JButton("Browse")
     val progress = JProgressBar(0, 100).apply {
@@ -113,7 +114,7 @@ private fun showWindow() {
     }
     frame.layout = BorderLayout()
     frame.add(inputs, BorderLayout.NORTH)
-    frame.add(JScrollPane(log), BorderLayout.CENTER)
+    frame.add(logScroll, BorderLayout.CENTER)
     frame.add(JPanel(BorderLayout(8, 0)).apply {
         border = BorderFactory.createEmptyBorder(8, 12, 12, 12)
         add(progress, BorderLayout.CENTER)
@@ -163,10 +164,16 @@ private fun showWindow() {
                 }
                 watchdog.scheduleAtFixedRate({
                     val idleSeconds = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - lastOutputAt.get())
-                    if (process.isAlive && idleSeconds >= 180 && timedOut.compareAndSet(false, true)) {
+                    if (process.isAlive && idleSeconds >= 15 && idleSeconds < 180) {
+                        SwingUtilities.invokeLater {
+                            progress.isIndeterminate = true
+                            progress.string = "Waiting for YouTube (${idleSeconds}s)…"
+                        }
+                    }
+                    if (process.isAlive && idleSeconds >= 120 && timedOut.compareAndSet(false, true)) {
                         process.destroyForcibly()
                         SwingUtilities.invokeLater {
-                            log.append("\nStopped: yt-dlp produced no output for 3 minutes. Check your connection, then try again.\n")
+                            log.append("\nStopped: yt-dlp produced no output for 2 minutes. Check your connection, then try again.\n")
                             progress.isIndeterminate = false
                             progress.string = "Timed out"
                         }
@@ -184,9 +191,14 @@ private fun showWindow() {
                                 progress.string = "${"%.1f".format(percent)}%"
                             } else {
                                 log.append("$line\n")
+                                log.caretPosition = log.document.length
                                 progress.isIndeterminate = true
                                 progress.string = when {
                                     "Downloading webpage" in line -> "Loading video…"
+                                    "Solving JS challenges" in line -> "Solving YouTube challenge…"
+                                    "Downloading m3u8 information" in line -> "Reading audio streams…"
+                                    "Downloading player" in line -> "Loading player…"
+                                    "Downloading .* API JSON".toRegex().containsMatchIn(line) -> "Reading video info…"
                                     "Extracting URL" in line || "Extracting video data" in line -> "Reading video info…"
                                     "Downloading" in line -> "Downloading…"
                                     "Destination:" in line || "ExtractAudio" in line -> "Converting MP3…"
@@ -201,7 +213,7 @@ private fun showWindow() {
                 activeProcess.set(null)
                 SwingUtilities.invokeLater {
                     log.append(when {
-                        timedOut.get() -> "\nDownload stopped after a 3 minute output timeout.\n"
+                        timedOut.get() -> "\nDownload stopped after a 2 minute output timeout.\n"
                         code == 0 -> "\nFinished. MP3 saved to: $outputDirectory\n"
                         code == 1 -> "\nDownload failed. Read the yt-dlp message above; common causes are network errors, an unavailable video, or missing FFmpeg.\n"
                         else -> "\nDownload failed with exit code $code. Read the yt-dlp output above for details.\n"
@@ -247,12 +259,15 @@ private fun startDownload(url: String): ProcessBuilder {
     "yt-dlp",
     "--no-playlist",
     "--extract-audio",
+    "--format", "bestaudio/best",
     "--audio-format", "mp3",
     "--audio-quality", "0",
     "--newline",
-    "--socket-timeout", "30",
-    "--retries", "3",
-    "--extractor-retries", "3",
+    "--verbose",
+    "--socket-timeout", "15",
+    "--retries", "1",
+    "--extractor-retries", "1",
+    "--extractor-args", "youtube:player_client=tv_samsung",
     "--output", outputDirectory.resolve("%(title)s.%(ext)s").toString(),
         url,
     ).directory(File(".").absoluteFile)
