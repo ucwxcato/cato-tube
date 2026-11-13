@@ -1,0 +1,68 @@
+# Gradle and Kotlin build output
+.gradle/
+**/build/
+.kotlin/
+
+# Keep the Gradle wrapper needed to build the project
+!gradle/wrapper/gradle-wrapper.jar
+
+# Downloaded audio and generated application packages
+/downloads/
+*.mp3
+*.m4a
+*.webm
+*.part
+*.ytdl
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Visual Studio Code
+.vscode/
+
+# Eclipse
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.springBeans
+.sts4-cache/
+bin/
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# Local machine configuration and secrets
+/local.properties
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs, temporary files, and crash dumps
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.orig
+hs_err_pid*
+replay_pid*
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
