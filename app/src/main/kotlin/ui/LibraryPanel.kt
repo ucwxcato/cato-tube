@@ -68,9 +68,14 @@ private val AUDIO_EXTENSIONS = arrayOf("mp3", "wav", "flac", "opus")
  * Home tab: search, sort, import, and the track list. Shows the 10 most recently added tracks
  * until the user picks "All" or types a search.
  */
-internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 12)) {
+internal class LibraryPanel(
+    private val frame: JFrame,
+    private val onPlay: (tracks: List<Track>, index: Int) -> Unit = { _, _ -> },
+    private val onLibraryChanged: (MusicLibrary?) -> Unit = {},
+) : JPanel(BorderLayout(0, 12)) {
     private var library: MusicLibrary? = null
     private var showAll = false
+    private var sortReversed = false
 
     private val model = TrackTableModel()
     private val table = SmoothTable(model)
@@ -117,6 +122,7 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
     private val popup = ThemedPopupMenu()
     private val openLocationItem = menuItem("Open File Location") { selectedTrack()?.let(::openFileLocation) }
     private val editItem = menuItem("Edit Details...") { selectedTrack()?.let(::editDetails) }
+    private val addToPlaylistItem = menuItem("Add to Playlist...") { selectedTrack()?.let(::addToPlaylist) }
     private val removeItem = menuItem("Remove from Library...", tint = Palette.danger) { selectedTrack()?.let(::confirmRemove) }
 
     init {
@@ -132,19 +138,12 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
             override fun removeUpdate(e: DocumentEvent) = refresh()
             override fun changedUpdate(e: DocumentEvent) = refresh()
         })
-        sortBox.addActionListener { refresh() }
-
-        val scroll = JScrollPane(table).apply {
-            border = BorderFactory.createEmptyBorder()
-            setColumnHeaderView(table.tableHeader)
-            viewport.isOpaque = false
-            columnHeader.isOpaque = false
-            columnHeader.background = Color(0, 0, 0, 0)
-            isOpaque = false
-            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            verticalScrollBar.setUI(SlimScrollBarUI())
+        sortBox.addActionListener {
+            sortReversed = false
+            refresh()
         }
-        content.add(scroll, CARD_LIST)
+
+        content.add(trackScrollPane(table), CARD_LIST)
         content.add(
             JPanel(GridBagLayout()).apply {
                 isOpaque = false
@@ -214,6 +213,7 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
         updateBanner()
         updateEnabledState()
         refresh()
+        onLibraryChanged(lib)
     }
 
     /** Shows a short message in the status line. */
@@ -227,28 +227,30 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
         library?.close()
     }
 
+    /** Marks the row for [trackId] as playing. Pass null when nothing from this panel is playing. */
+    fun showNowPlaying(trackId: String?, level: Float) {
+        table.setPlaying(trackId, level)
+    }
+
     private fun configureTable() {
+        table.rowOfTrack = model::indexOfId
+        styleTrackTable(table, model)
+        installHeaderSort(table, ::sortByColumn)
         table.apply {
-            rowHeight = 40
-            setShowGrid(false)
-            intercellSpacing = Dimension(0, 0)
-            foreground = Palette.text
-            selectionModel.selectionMode = ListSelectionModel.SINGLE_SELECTION
-            autoResizeMode = JTable.AUTO_RESIZE_ALL_COLUMNS
-            fillsViewportHeight = true
-            tableHeader.reorderingAllowed = false
-            tableHeader.preferredSize = Dimension(0, 34)
-            tableHeader.isOpaque = false
-            tableHeader.background = Color(0, 0, 0, 0)
-            tableHeader.defaultRenderer = HeaderRenderer()
-            setDefaultRenderer(String::class.java, TrackCellRenderer(this@LibraryPanel.model))
-            columnModel.getColumn(0).preferredWidth = 380
-            columnModel.getColumn(1).preferredWidth = 170
-            columnModel.getColumn(2).preferredWidth = 120
-            columnModel.getColumn(3).preferredWidth = 150
             addMouseListener(object : MouseAdapter() {
                 override fun mousePressed(e: MouseEvent) = maybeShowPopup(e)
                 override fun mouseReleased(e: MouseEvent) = maybeShowPopup(e)
+                override fun mouseClicked(e: MouseEvent) {
+                    if (e.clickCount != 2 || e.button != MouseEvent.BUTTON1) return
+                    val row = rowAtPoint(e.point)
+                    if (row >= 0) onPlay(this@LibraryPanel.model.snapshot(), row)
+                }
+            })
+            getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("ENTER"), "playSelected")
+            actionMap.put("playSelected", object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent) {
+                    if (selectedRow >= 0) onPlay(this@LibraryPanel.model.snapshot(), selectedRow)
+                }
             })
             getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("DELETE"), "removeSelected")
             getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("F2"), "editSelected")
@@ -282,6 +284,7 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
     private fun configurePopup() {
         popup.add(openLocationItem)
         popup.add(editItem)
+        popup.add(addToPlaylistItem)
         popup.add(ThemedMenuSeparator())
         popup.add(removeItem)
     }
@@ -298,6 +301,7 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
         table.setRowSelectionInterval(row, row)
         val writable = library?.readOnlyReason == null
         editItem.isEnabled = writable
+        addToPlaylistItem.isEnabled = writable
         removeItem.isEnabled = writable
         popup.show(table, e.x, e.y)
     }
@@ -328,7 +332,7 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
 
         val sort = sortBox.selectedItem as? TrackSort ?: TrackSort.TITLE
         val tracks = if (searching || showAll) {
-            lib.search(query, sort)
+            lib.search(query, sort).let { if (sortReversed) it.reversed() else it }
         } else {
             lib.recentlyAdded(RECENT_LIMIT)
         }
@@ -413,24 +417,28 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
     private fun editDetails(track: Track) {
         val lib = library ?: return
         if (lib.readOnlyReason != null) return
-        val titleField = ThemedField(track.title)
-        val artistField = ThemedField(track.artist)
-        val form = JPanel(GridLayout(4, 1, 0, 8)).apply {
-            isOpaque = false
-            add(sectionLabel("Title"))
-            add(titleField)
-            add(sectionLabel("Artist"))
-            add(artistField)
+        showEditSongDialog(frame, lib, track)
+    }
+
+    /**
+     * Clicking a column header sorts the list by that column. Clicking the same header again
+     * reverses the order. A click in Recent switches to All, because Recent is always newest first.
+     */
+    private fun sortByColumn(sort: TrackSort) {
+        showAll = true
+        if (sortBox.selectedItem == sort) {
+            sortReversed = !sortReversed
+        } else {
+            sortReversed = false
+            sortBox.selectedItem = sort
         }
-        showThemedDialog(
-            frame,
-            "Edit song",
-            form,
-            confirmText = "Save",
-            validate = { if (titleField.text.isBlank()) "A song needs a title." else null },
-        ) {
-            lib.updateTrack(track.id, titleField.text, artistField.text)
-        }
+        refresh()
+    }
+
+    private fun addToPlaylist(track: Track) {
+        val lib = library ?: return
+        if (lib.readOnlyReason != null) return
+        chooseAndAddToPlaylist(frame, lib, track) { message -> showFeedback(message) }
     }
 
     private fun openFileLocation(track: Track) {
@@ -480,7 +488,7 @@ internal class LibraryPanel(private val frame: JFrame) : JPanel(BorderLayout(0, 
     }
 }
 
-private class TrackTableModel : AbstractTableModel() {
+internal class TrackTableModel : AbstractTableModel() {
     private var rows: List<Track> = emptyList()
     private var missingIds: Set<String> = emptySet()
 
@@ -491,6 +499,12 @@ private class TrackTableModel : AbstractTableModel() {
     }
 
     fun trackAt(row: Int): Track? = rows.getOrNull(row)
+
+    /** The row showing [trackId], or -1. Rows are searched in their current (sorted) order. */
+    fun indexOfId(trackId: String): Int = rows.indexOfFirst { it.id == trackId }
+
+    /** The rows in their current order, for building a play queue. */
+    fun snapshot(): List<Track> = rows
 
     fun isMissing(row: Int): Boolean = rows.getOrNull(row)?.let { it.id in missingIds } ?: false
 
@@ -602,9 +616,89 @@ private class HeaderRenderer : DefaultTableCellRenderer() {
     }
 }
 
-private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy").withZone(ZoneId.systemDefault())
+private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm").withZone(ZoneId.systemDefault())
 
-private fun formatDuration(ms: Long?): String {
+/** Sizes, colors, and renderers shared by every track list (Home and playlists). */
+/**
+ * Edit dialog for a song's title and artist. Shared by Home and Playlists. [onSaved] runs on the
+ * EDT after the save is queued.
+ */
+internal fun showEditSongDialog(owner: JFrame, lib: MusicLibrary, track: Track, onSaved: () -> Unit = {}) {
+    val titleField = ThemedField(track.title)
+    val artistField = ThemedField(track.artist)
+    val form = JPanel(GridLayout(4, 1, 0, 8)).apply {
+        isOpaque = false
+        add(sectionLabel("Title"))
+        add(titleField)
+        add(sectionLabel("Artist"))
+        add(artistField)
+    }
+    showThemedDialog(
+        owner,
+        "Edit song",
+        form,
+        confirmText = "Save",
+        validate = { if (titleField.text.isBlank()) "A song needs a title." else null },
+    ) {
+        lib.updateTrack(track.id, titleField.text, artistField.text)
+        onSaved()
+    }
+}
+
+/** Makes the column headers of [table] clickable. Each sortable column reports its [TrackSort] to [onSort]. */
+internal fun installHeaderSort(table: JTable, onSort: (TrackSort) -> Unit) {
+    val header = table.tableHeader
+    header.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+    header.addMouseListener(object : MouseAdapter() {
+        override fun mouseClicked(e: MouseEvent) {
+            val column = table.convertColumnIndexToModel(header.columnAtPoint(e.point))
+            val sort = when (column) {
+                0 -> TrackSort.TITLE
+                1 -> TrackSort.ARTIST
+                2 -> TrackSort.DURATION
+                3 -> TrackSort.DATE_ADDED
+                else -> null
+            }
+            sort?.let(onSort)
+        }
+    })
+}
+
+internal fun styleTrackTable(table: SmoothTable, model: TrackTableModel) {
+    table.apply {
+        rowHeight = 40
+        setShowGrid(false)
+        intercellSpacing = Dimension(0, 0)
+        foreground = Palette.text
+        selectionModel.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        autoResizeMode = JTable.AUTO_RESIZE_ALL_COLUMNS
+        fillsViewportHeight = true
+        tableHeader.reorderingAllowed = false
+        tableHeader.preferredSize = Dimension(0, 34)
+        tableHeader.isOpaque = false
+        tableHeader.background = Color(0, 0, 0, 0)
+        tableHeader.defaultRenderer = HeaderRenderer()
+        setDefaultRenderer(String::class.java, TrackCellRenderer(model))
+        columnModel.getColumn(0).preferredWidth = 380
+        columnModel.getColumn(1).preferredWidth = 170
+        columnModel.getColumn(2).preferredWidth = 120
+        columnModel.getColumn(3).preferredWidth = 170
+    }
+}
+
+/** Scroll pane for a track table, with the header pinned and the glass scroll bar. */
+internal fun trackScrollPane(table: JTable): JScrollPane = JScrollPane(table).apply {
+    border = BorderFactory.createEmptyBorder()
+    setColumnHeaderView(table.tableHeader)
+    viewport.isOpaque = false
+    columnHeader.isOpaque = false
+    columnHeader.background = Color(0, 0, 0, 0)
+    isOpaque = false
+    horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+    verticalScrollBar.setUI(SlimScrollBarUI())
+}
+
+internal fun formatDuration(ms: Long?): String {
     if (ms == null) return "-"
     val total = ms / 1000
     val hours = total / 3600
@@ -613,7 +707,7 @@ private fun formatDuration(ms: Long?): String {
     return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
 }
 
-private fun formatTotal(ms: Long): String {
+internal fun formatTotal(ms: Long): String {
     val minutes = ms / 60_000
     val hours = minutes / 60
     return if (hours > 0) "${hours}h ${minutes % 60}m" else "${minutes}m"

@@ -1,5 +1,6 @@
 package org.catosaur.app
 
+import org.catosaur.app.playback.SPECTRUM_BANDS
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.BorderLayout
@@ -17,12 +18,17 @@ import java.awt.LinearGradientPaint
 import java.awt.RadialGradientPaint
 import java.awt.Rectangle
 import java.awt.RenderingHints
+import java.awt.Shape
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.geom.Arc2D
+import java.awt.image.BufferedImage
+import javax.imageio.ImageIO
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Line2D
+import java.awt.geom.Path2D
 import java.awt.geom.Point2D
 import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
@@ -157,6 +163,17 @@ internal fun mix(a: Color, b: Color, t: Float): Color {
 internal fun withAlpha(color: Color, alpha: Float): Color =
     Color(color.red, color.green, color.blue, (alpha.coerceIn(0f, 1f) * 255).roundToInt())
 
+/**
+ * Fills [shape] with a near-opaque [Palette.base] layer. Translucent fills on top keep their look, but
+ * the bars behind them are hidden, so the backdrop reads as background only.
+ */
+internal fun paintBacking(g2: Graphics2D, shape: Shape) {
+    g2.color = withAlpha(Palette.base, BACKING_ALPHA)
+    g2.fill(shape)
+}
+
+private const val BACKING_ALPHA = 0.9f
+
 internal fun Graphics.smoothCopy(): Graphics2D = (create() as Graphics2D).apply {
     setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
     setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
@@ -189,6 +206,311 @@ internal class Eased(private val speed: Float, private val onStep: () -> Unit) {
             timer.stop()
         }
         onStep()
+    }
+}
+
+/**
+ * Small progress ring for background downloads. It fades in and out and takes no input, so it
+ * never blocks the page under it. Without a percent it spins; with one, the arc fills clockwise.
+ * Give it a fixed slot in a layout so showing it does not shift anything.
+ */
+internal class DownloadRing : JComponent() {
+    /** Runs when the user clicks the ring while a download is running. */
+    var onCancel: (() -> Unit)? = null
+
+    private var indeterminate = true
+    private var percent: Int? = null
+    private var spinDegrees = 0.0
+    private val fill = Eased(0.2f) { repaint() }
+    private val visibility = Eased(0.12f) { repaint() }
+    private val spin: Timer = Timer(16) {
+        spinDegrees = (spinDegrees + 5.0) % 360.0
+        if (visibility.current <= 0f && visibility.target == 0f) {
+            spin.stop()
+        } else {
+            repaint()
+        }
+    }
+
+    init {
+        isOpaque = false
+        preferredSize = Dimension(RING_SLOT, RING_SLOT)
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (visibility.target == 1f) onCancel?.invoke()
+            }
+        })
+    }
+
+    /** Shows the ring for [title] at [fraction] (0..1), or spins it when [fraction] is null. */
+    fun showActivity(title: String, fraction: Float?) {
+        indeterminate = fraction == null
+        percent = fraction?.let { (it.coerceIn(0f, 1f) * 100).roundToInt() }
+        if (fraction != null) fill.target = fraction.coerceIn(0f, 1f)
+        toolTipText = if (percent == null) {
+            "Downloading $title. Click to cancel."
+        } else {
+            "Downloading $title ($percent%). Click to cancel."
+        }
+        visibility.target = 1f
+        if (!spin.isRunning) spin.start()
+    }
+
+    /** Fades the ring out. It stops spinning once it is fully hidden. */
+    fun fadeOut() {
+        visibility.target = 0f
+        toolTipText = null
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val alpha = visibility.current
+        if (alpha <= 0.001f) return
+        val g2 = g.smoothCopy()
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha.coerceIn(0f, 1f))
+        val inset = RING_STROKE / 2f + 2f
+        val diameter = RING_SLOT - inset * 2
+        val x = (width - RING_SLOT) / 2f + inset
+        val y = (height - RING_SLOT) / 2f + inset
+        g2.stroke = BasicStroke(RING_STROKE, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        g2.color = Palette.field
+        g2.draw(Ellipse2D.Float(x, y, diameter, diameter))
+        g2.color = Palette.focus
+        if (indeterminate) {
+            g2.draw(Arc2D.Float(x, y, diameter, diameter, (90.0 - spinDegrees).toFloat(), -100f, Arc2D.OPEN))
+        } else {
+            val sweep = -360f * fill.current
+            if (sweep < -0.5f) {
+                g2.draw(Arc2D.Float(x, y, diameter, diameter, 90f, sweep, Arc2D.OPEN))
+            }
+        }
+        percent?.takeUnless { indeterminate }?.let { value ->
+            g2.font = Fonts.ui(10)
+            g2.color = Palette.text
+            val label = "$value%"
+            val metrics = g2.fontMetrics
+            g2.drawString(
+                label,
+                width / 2f - metrics.stringWidth(label) / 2f,
+                height / 2f + (metrics.ascent - metrics.descent) / 2f,
+            )
+        }
+        g2.dispose()
+    }
+
+    private companion object {
+        const val RING_SLOT = 38
+        const val RING_STROKE = 3f
+    }
+}
+
+internal enum class TransportGlyph { PREVIOUS, PLAY, PAUSE, NEXT, SHUFFLE, REPEAT, REPEAT_ONE, VOLUME, MUTED }
+
+/**
+ * Round icon button for the player bar. The glyph is drawn with shapes, not an icon font. [active]
+ * tints it with the focus color (shuffle and repeat on). [primary] draws the filled play button.
+ */
+internal class TransportButton(
+    var glyph: TransportGlyph,
+    private val size: Int = 30,
+    private val primary: Boolean = false,
+) : JComponent() {
+    var active: Boolean = false
+        set(value) {
+            field = value
+            repaint()
+        }
+
+    /** Runs on a click with the button enabled. */
+    var onClick: (() -> Unit)? = null
+
+    private val hover = Eased(0.25f) { repaint() }
+
+    init {
+        isOpaque = false
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        preferredSize = Dimension(size, size)
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) {
+                hover.target = 1f
+            }
+
+            override fun mouseExited(e: MouseEvent) {
+                hover.target = 0f
+            }
+
+            override fun mouseClicked(e: MouseEvent) {
+                if (isEnabled && e.button == MouseEvent.BUTTON1) onClick?.invoke()
+            }
+        })
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.smoothCopy()
+        val radius = size / 2f
+        val cx = width / 2f
+        val cy = height / 2f
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, if (isEnabled) 1f else 0.35f)
+        val disc = Ellipse2D.Float(cx - radius, cy - radius, size.toFloat(), size.toFloat())
+        val ink = when {
+            primary -> Color.WHITE
+            active -> Palette.focus
+            else -> mix(Palette.muted, Palette.text, hover.current)
+        }
+        if (primary) {
+            val top = mix(Palette.primaryHover, Color.WHITE, 0.10f)
+            g2.paint = GradientPaint(0f, cy - radius, top, 0f, cy + radius, Palette.primary)
+            g2.fill(disc)
+        } else if (hover.current > 0f) {
+            g2.color = withAlpha(Color.WHITE, 0.06f * hover.current)
+            g2.fill(disc)
+        }
+        g2.color = ink
+        drawGlyph(g2, glyph, cx - size * 0.21f, cy - size * 0.21f, size * 0.42f)
+        g2.dispose()
+    }
+
+    private companion object {
+        fun drawGlyph(g2: Graphics2D, glyph: TransportGlyph, x0: Float, y0: Float, u: Float) {
+            g2.stroke = BasicStroke(maxOf(1.5f, u * 0.09f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            fun at(x: Float, y: Float) = Point2D.Float(x0 + x * u, y0 + y * u)
+            fun polygon(vararg points: Float) {
+                val path = Path2D.Float()
+                path.moveTo(x0 + points[0] * u, y0 + points[1] * u)
+                var i = 2
+                while (i < points.size) {
+                    path.lineTo(x0 + points[i] * u, y0 + points[i + 1] * u)
+                    i += 2
+                }
+                path.closePath()
+                g2.fill(path)
+            }
+            fun polyline(vararg points: Float) {
+                val path = Path2D.Float()
+                path.moveTo(x0 + points[0] * u, y0 + points[1] * u)
+                var i = 2
+                while (i < points.size) {
+                    path.lineTo(x0 + points[i] * u, y0 + points[i + 1] * u)
+                    i += 2
+                }
+                g2.draw(path)
+            }
+            fun bar(x: Float, y: Float, w: Float, h: Float) {
+                g2.fill(RoundRectangle2D.Float(x0 + x * u, y0 + y * u, w * u, h * u, w * u / 2, w * u / 2))
+            }
+            fun speaker() {
+                polygon(0.12f, 0.38f, 0.30f, 0.38f, 0.50f, 0.22f, 0.50f, 0.78f, 0.30f, 0.62f, 0.12f, 0.62f)
+            }
+            when (glyph) {
+                TransportGlyph.PLAY -> polygon(0.30f, 0.20f, 0.80f, 0.50f, 0.30f, 0.80f)
+                TransportGlyph.PAUSE -> {
+                    bar(0.28f, 0.20f, 0.16f, 0.60f)
+                    bar(0.56f, 0.20f, 0.16f, 0.60f)
+                }
+                TransportGlyph.PREVIOUS -> {
+                    bar(0.16f, 0.22f, 0.08f, 0.56f)
+                    polygon(0.84f, 0.22f, 0.84f, 0.78f, 0.26f, 0.50f)
+                }
+                TransportGlyph.NEXT -> {
+                    bar(0.76f, 0.22f, 0.08f, 0.56f)
+                    polygon(0.16f, 0.22f, 0.16f, 0.78f, 0.74f, 0.50f)
+                }
+                TransportGlyph.SHUFFLE -> {
+                    polyline(0.10f, 0.70f, 0.35f, 0.70f, 0.65f, 0.30f, 0.90f, 0.30f)
+                    polyline(0.10f, 0.30f, 0.35f, 0.30f, 0.65f, 0.70f, 0.90f, 0.70f)
+                    polyline(0.80f, 0.20f, 0.90f, 0.30f, 0.80f, 0.40f)
+                    polyline(0.80f, 0.60f, 0.90f, 0.70f, 0.80f, 0.80f)
+                }
+                TransportGlyph.REPEAT, TransportGlyph.REPEAT_ONE -> {
+                    g2.draw(RoundRectangle2D.Float(x0 + 0.16f * u, y0 + 0.28f * u, 0.68f * u, 0.44f * u, 0.22f * u, 0.22f * u))
+                    polygon(0.70f, 0.14f, 0.86f, 0.24f, 0.70f, 0.34f)
+                    if (glyph == TransportGlyph.REPEAT_ONE) {
+                        polyline(0.46f, 0.42f, 0.52f, 0.38f, 0.52f, 0.62f)
+                    }
+                }
+                TransportGlyph.VOLUME -> {
+                    speaker()
+                    g2.draw(Arc2D.Float(x0 + 0.44f * u, y0 + 0.30f * u, 0.40f * u, 0.40f * u, -45f, 90f, Arc2D.OPEN))
+                }
+                TransportGlyph.MUTED -> {
+                    speaker()
+                    polyline(0.64f, 0.36f, 0.88f, 0.64f)
+                    polyline(0.88f, 0.36f, 0.64f, 0.64f)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Thin horizontal slider with an accent fill and a small knob. Drag updates are shown at once.
+ * [onChange] runs on every user change with a flag that is true when the mouse is released, so a
+ * seek can wait for the release. While the user drags, outside updates to [fraction] are ignored.
+ */
+internal class ProgressSlider : JComponent() {
+    var fraction: Float = 0f
+        set(value) {
+            if (dragging) return
+            field = value.coerceIn(0f, 1f)
+            repaint()
+        }
+
+    var onChange: ((fraction: Float, released: Boolean) -> Unit)? = null
+
+    /** True while the mouse is held down on the slider. */
+    var dragging: Boolean = false
+        private set
+
+    init {
+        isOpaque = false
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        preferredSize = Dimension(160, 18)
+        addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                if (!isEnabled || e.button != MouseEvent.BUTTON1) return
+                dragging = true
+                setFromX(e.x, released = false)
+            }
+
+            override fun mouseReleased(e: MouseEvent) {
+                if (!dragging) return
+                dragging = false
+                setFromX(e.x, released = true)
+            }
+        })
+        addMouseMotionListener(object : MouseAdapter() {
+            override fun mouseDragged(e: MouseEvent) {
+                if (dragging) setFromX(e.x, released = false)
+            }
+        })
+    }
+
+    private fun setFromX(x: Int, released: Boolean) {
+        val usable = (width - KNOB_RADIUS * 2).coerceAtLeast(1)
+        val value = ((x - KNOB_RADIUS).toFloat() / usable).coerceIn(0f, 1f)
+        fraction = value
+        onChange?.invoke(value, released)
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.smoothCopy()
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, if (isEnabled) 1f else 0.35f)
+        val left = KNOB_RADIUS.toFloat()
+        val usable = width - KNOB_RADIUS * 2f
+        val cy = height / 2f
+        val trackHeight = 4f
+        g2.color = Palette.field
+        g2.fill(RoundRectangle2D.Float(left, cy - trackHeight / 2, usable, trackHeight, trackHeight, trackHeight))
+        val filled = usable * fraction
+        g2.color = Palette.accent
+        g2.fill(RoundRectangle2D.Float(left, cy - trackHeight / 2, filled, trackHeight, trackHeight, trackHeight))
+        g2.color = Palette.text
+        g2.fill(Ellipse2D.Float(left + filled - KNOB_RADIUS, cy - KNOB_RADIUS, KNOB_RADIUS * 2f, KNOB_RADIUS * 2f))
+        g2.dispose()
+    }
+
+    private companion object {
+        const val KNOB_RADIUS = 5
     }
 }
 
@@ -248,13 +570,33 @@ internal class SectionHeading(initial: String) : JComponent() {
 }
 
 /**
- * Window body: the editor background with two soft colored glows. Translucent [Card]s sit on top
- * of it, so the glows show through the glass.
+ * Window body: the editor background with two soft colored glows and a live spectrum. [spectrum]
+ * supplies band levels (0 to 1) each frame; the bars rise from the bottom edge and ease toward it, so
+ * they settle flat when playback stops. Translucent [Card]s sit on top, so the bars show through the glass.
  */
-internal class Backdrop : JPanel(BorderLayout()) {
+internal class Backdrop(
+    private val spectrum: () -> FloatArray = { FloatArray(SPECTRUM_BANDS) },
+) : JPanel(BorderLayout()) {
+    private val shown = FloatArray(SPECTRUM_BANDS)
+    private val ticker = Timer(BARS_FRAME_MS) { tickBars() }
+
     init {
         isOpaque = true
         background = Palette.base
+        ticker.start()
+    }
+
+    private fun tickBars() {
+        val target = spectrum()
+        var moved = false
+        for (band in shown.indices) {
+            val goal = target[band]
+            val rate = if (goal > shown[band]) BARS_ATTACK else BARS_RELEASE
+            val next = shown[band] + (goal - shown[band]) * rate
+            if (abs(next - shown[band]) > 0.001f) moved = true
+            shown[band] = next
+        }
+        if (moved) repaint()
     }
 
     override fun paintComponent(g: Graphics) {
@@ -278,9 +620,34 @@ internal class Backdrop : JPanel(BorderLayout()) {
             arrayOf(withAlpha(Palette.glow, 0.13f), withAlpha(Palette.glow, 0f)),
         )
         g2.fillRect(0, 0, width, height)
+        paintBars(g2, w, h)
         g2.dispose()
     }
+
+    /** One accent color for every bar. Each bar has a wide faint halo and a brighter core. */
+    private fun paintBars(g2: Graphics2D, w: Float, h: Float) {
+        val slot = w / SPECTRUM_BANDS
+        val barWidth = slot * 0.5f
+        val maxHeight = h * 0.5f
+        for (band in 0 until SPECTRUM_BANDS) {
+            val level = shown[band].coerceIn(0f, 1f)
+            if (level < 0.01f) continue
+            val barHeight = maxHeight * level
+            val x = slot * band + (slot - barWidth) / 2f
+            val y = h - barHeight
+            g2.color = withAlpha(Palette.focus, 0.02f + 0.04f * level)
+            g2.fill(RoundRectangle2D.Float(x - 12f, y - 12f, barWidth + 24f, barHeight + 12f, 22f, 22f))
+            g2.color = withAlpha(Palette.focus, 0.04f + 0.07f * level)
+            g2.fill(RoundRectangle2D.Float(x - 5f, y - 5f, barWidth + 10f, barHeight + 5f, 12f, 12f))
+            g2.color = withAlpha(Palette.focus, 0.08f + 0.14f * level)
+            g2.fill(RoundRectangle2D.Float(x, y, barWidth, barHeight, 6f, 6f))
+        }
+    }
 }
+
+private const val BARS_FRAME_MS = 33
+private const val BARS_ATTACK = 0.55f
+private const val BARS_RELEASE = 0.14f
 
 /**
  * Frosted-glass panel: a white translucent layer over whatever is behind it, a sheen band at the
@@ -302,6 +669,7 @@ internal class Card(
         val w = width.toFloat()
         val h = height.toFloat()
         val body = RoundRectangle2D.Float(0f, 0f, w, h, arc, arc)
+        paintBacking(g2, body)
         g2.color = withAlpha(Color.WHITE, tier)
         g2.fill(body)
         g2.clip(body)
@@ -356,6 +724,7 @@ internal class ThemedField(initial: String = "") : JTextField(initial) {
         val w = width.toFloat()
         val h = height.toFloat()
         val arc = 10f
+        paintBacking(g2, RoundRectangle2D.Float(0f, 0f, w, h, arc, arc))
         g2.color = withAlpha(Color.BLACK, 0.16f)
         g2.fill(RoundRectangle2D.Float(0f, 0f, w, h, arc, arc))
         if (focus.current > 0f) {
@@ -534,7 +903,20 @@ internal class ThemedProgressBar : JProgressBar(0, 100) {
     }
 }
 
-/** Square app mark for the header, in the current accent color. */
+/** The app icon, bundled as `app-icon.png`. Used in the header and as the window icon (taskbar). */
+internal object AppIcon {
+    /** Icon sizes for the window. Java picks the closest one for the taskbar and title bar. */
+    val images: List<BufferedImage> by lazy {
+        listOfNotNull(
+            loadResource("/app-icon.png"),
+        )
+    }
+
+    private fun loadResource(path: String): BufferedImage? =
+        AppIcon::class.java.getResourceAsStream(path)?.use { ImageIO.read(it) }
+}
+
+/** Header mark: the app icon drawn at the component's size with smooth scaling. */
 internal class LogoMark : JComponent() {
     init {
         isOpaque = false
@@ -542,19 +924,18 @@ internal class LogoMark : JComponent() {
     }
 
     override fun paintComponent(g: Graphics) {
+        val image = AppIcon.images.firstOrNull() ?: return
         val g2 = g.smoothCopy()
-        val s = minOf(width, height).toFloat()
-        val radius = 6f
-        g2.color = Palette.primary
-        g2.fill(RoundRectangle2D.Float(0f, 0f, s, s, radius, radius))
-        val glyph = "C"
-        g2.font = Fonts.ui(22, Font.BOLD)
-        val metrics = g2.fontMetrics
-        g2.color = Color.WHITE
-        g2.drawString(glyph, (s - metrics.stringWidth(glyph)) / 2f, (s - metrics.height) / 2f + metrics.ascent)
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        val s = minOf(width, height)
+        g2.drawImage(image, 0, 0, s, s, null)
         g2.dispose()
     }
 }
+
+
+/** Output RMS is usually 0.1 to 0.3, so the playing-row pulse scales it up to use the full range. */
+private const val PLAYING_LEVEL_GAIN = 3f
 
 /**
  * Table whose hover and selection highlights are rounded pills that glide between rows.
@@ -566,6 +947,22 @@ internal class SmoothTable(model: TableModel) : JTable(model) {
     private val selectY = Eased(0.32f) { repaint() }
     private val selectAlpha = Eased(0.18f) { repaint() }
     private var hoverRow = -1
+    private val playingAlpha = Eased(0.25f) { repaint() }
+    private val playingPulse = Eased(0.12f) { repaint() }
+    private var playingId: String? = null
+
+    /** Maps a track id to its row, or -1 when the row is not shown. Set by the panel that owns the model. */
+    var rowOfTrack: (String) -> Int = { -1 }
+
+    /**
+     * Marks [trackId] as the playing row. [level] (0 to 1) drives a soft pulse. Pass null when nothing
+     * is playing or the track is not in this table. Selection is drawn separately.
+     */
+    fun setPlaying(trackId: String?, level: Float) {
+        playingId = trackId
+        playingAlpha.target = if (trackId != null) 1f else 0f
+        playingPulse.target = (level * PLAYING_LEVEL_GAIN).coerceIn(0f, 1f)
+    }
 
     init {
         isOpaque = false
@@ -612,6 +1009,23 @@ internal class SmoothTable(model: TableModel) : JTable(model) {
             g2.color = withAlpha(Palette.glassEdge, 0.20f * hoverAlpha.current)
             g2.stroke = BasicStroke(1f)
             g2.draw(RoundRectangle2D.Float(inset + 0.5f, hoverY.current + 2.5f, pillWidth - 1f, pillHeight - 1f, 8f, 8f))
+        }
+        val playingRow = playingId?.let(rowOfTrack) ?: -1
+        if (playingAlpha.current > 0.01f && playingRow >= 0) {
+            val top = playingRow * rowHeight + 2f
+            val fade = playingAlpha.current
+            // The pulse lifts the halo and fill; the left bar stays put so the row reads as "playing" while paused.
+            val pulse = 0.25f + 0.75f * playingPulse.current
+            val strength = fade * pulse
+            for (layer in 3 downTo 1) {
+                g2.color = withAlpha(Palette.focus, 0.20f * strength / layer)
+                g2.stroke = BasicStroke(2f * layer)
+                g2.draw(RoundRectangle2D.Float(inset, top, pillWidth, pillHeight, 10f, 10f))
+            }
+            g2.color = withAlpha(Palette.focus, 0.16f * strength)
+            g2.fill(RoundRectangle2D.Float(inset, top, pillWidth, pillHeight, 8f, 8f))
+            g2.color = withAlpha(Palette.focus, 0.85f * fade)
+            g2.fill(RoundRectangle2D.Float(inset + 2f, top + 7f, 3f, pillHeight - 14f, 2f, 2f))
         }
         if (selectAlpha.current > 0f) {
             val top = selectY.current + 2f
@@ -669,6 +1083,7 @@ internal class SegmentedControl(
         val g2 = g.smoothCopy()
         val segment = width / labels.size.toFloat()
         val pad = 3f
+        paintBacking(g2, RoundRectangle2D.Float(0f, 0f, width - 1f, height - 1f, 10f, 10f))
         g2.color = withAlpha(Color.BLACK, 0.16f)
         g2.fill(RoundRectangle2D.Float(0f, 0f, width - 1f, height - 1f, 10f, 10f))
         g2.color = Palette.primary
@@ -759,6 +1174,7 @@ private class ThemedComboUI : BasicComboBoxUI() {
         val w = c.width.toFloat()
         val h = c.height.toFloat()
         val arc = 10f
+        paintBacking(g2, RoundRectangle2D.Float(0f, 0f, w, h, arc, arc))
         g2.color = withAlpha(Color.BLACK, 0.16f)
         g2.fill(RoundRectangle2D.Float(0f, 0f, w, h, arc, arc))
         if (comboBox.isPopupVisible) {

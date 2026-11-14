@@ -28,6 +28,26 @@ internal fun safeFileStem(title: String, fallback: String = "track"): String {
 }
 
 /**
+ * Moves a finished download into [songsDirectory] as "<safe title>.mp3". Collisions get " (2)",
+ * " (3)", and so on. Existing files are never overwritten.
+ */
+internal fun moveAsNewSong(source: Path, songsDirectory: Path, title: String): Path {
+    Files.createDirectories(songsDirectory)
+    val stem = safeFileStem(title)
+    var index = 1
+    while (true) {
+        val name = if (index == 1) "$stem.mp3" else "$stem ($index).mp3"
+        val target = songsDirectory.resolve(name)
+        try {
+            Files.move(source, target)
+            return target
+        } catch (_: FileAlreadyExistsException) {
+            index++
+        }
+    }
+}
+
+/**
  * Copies [source] into [songsDirectory] under a name that does not exist yet. Existing files
  * are never overwritten: collisions get " (2)", " (3)", and so on. A partial copy is removed
  * if the copy fails.

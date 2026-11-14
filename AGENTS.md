@@ -16,9 +16,10 @@ Use only for audio the user owns or is authorized to use. Do not add features th
 ## Layout
 
 - `app/src/main/kotlin/App.kt`: entry point, CLI, UIManager defaults, and window launch.
-- `app/src/main/kotlin/ui/`: main window, sidebar navigation, library and downloads panels, startup and library-folder dialogs, and themed dialogs.
-- `app/src/main/kotlin/library/`: library model, storage with atomic save and backup, file names, media probing, and scanning.
-- `app/src/main/kotlin/download/`: yt-dlp command construction, YouTube URL validation, and the 2-minute no-output watchdog.
+- `app/src/main/kotlin/ui/`: main window, sidebar navigation, library, playlists, and downloads panels, startup and library-folder dialogs, and themed dialogs.
+- `app/src/main/kotlin/library/`: library model (tracks and playlists), storage with atomic save and backup, file names, media probing, and scanning.
+- `app/src/main/kotlin/download/`: yt-dlp command construction, YouTube URL validation and search, the sequential `DownloadManager` (staging and registration), and the 2-minute no-output watchdog.
+- `app/src/main/kotlin/playback/`: `AudioPlayer` (FFmpeg PCM into a `SourceDataLine` on one thread), `PlaybackQueue` (order, repeat, shuffle; no UI), and `PlaybackController` (owns the engine and queue for the window).
 - `app/src/main/kotlin/Theme.kt`: custom-painted Swing components and the `Palette`/`Fonts` objects.
 - `utils/src/main/kotlin/Utilities.kt`: shared helper module (`org.catosaur.utils`). Tests in `utils/src/test/kotlin/`.
 - `buildSrc/src/main/kotlin/kotlin-jvm.gradle.kts`: convention plugin. Sets the Java toolchain (currently 25) and JUnit Platform for tests.
@@ -50,7 +51,7 @@ External tools must be on `PATH` for real downloads: `yt-dlp`, `ffmpeg`, and `de
 - Use `Palette` and `Fonts` for colors and fonts. Do not hard-code new colors in `App.kt`.
 - Custom components use `Eased` for animation and `smoothCopy()` for anti-aliased painting. Keep Swing `Timer` callbacks cheap and repaint only when state changes.
 - Do not change the yt-dlp argument list (`startDownload`) without reading the yt-dlp decisions in `DOCS/music-player-devplan.md`. Flags like `--force-ipv4`, `--socket-timeout`, and the `player_client` override were tuned on purpose.
-- Keep the download output path as `<chosen folder>/%(title)s.%(ext)s`.
+- The manual Downloads tab keeps the output path `<chosen folder>/%(title)s.%(ext)s`. Discover downloads stage in `<library>/.staging/<job>/` and move the finished MP3 to `<library>/songs/` (devplan section 1, output path decision).
 - Don't add emojis to UI text or code.
 
 ## Verification

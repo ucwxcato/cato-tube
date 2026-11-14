@@ -1,5 +1,6 @@
 package org.catosaur.app.ui
 
+import org.catosaur.app.AppIcon
 import org.catosaur.app.Backdrop
 import org.catosaur.app.Card
 import org.catosaur.app.Fonts
@@ -7,6 +8,9 @@ import org.catosaur.app.LogoMark
 import org.catosaur.app.NativeTitleBar
 import org.catosaur.app.Palette
 import org.catosaur.app.SectionHeading
+import org.catosaur.app.download.DownloadManager
+import org.catosaur.app.playback.PlaybackController
+import org.catosaur.app.library.MusicLibrary
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Font
@@ -24,14 +28,35 @@ private const val WINDOW_TITLE = "CatoTube"
 
 /** Builds the main window, shows it, and then resolves the library folder on the EDT. */
 internal fun showMainWindow() {
-    val frame = JFrame(WINDOW_TITLE)
-    val library = LibraryPanel(frame)
+    val frame = JFrame(WINDOW_TITLE).apply {
+        iconImages = AppIcon.images
+    }
+    var currentLibrary: MusicLibrary? = null
+    val playback = PlaybackController { track -> currentLibrary?.root?.resolve(track.relativePath) }
+    val playlists = PlaylistsPanel(frame, onPlay = playback::playTracks, onShuffle = playback::playShuffled)
+    val downloads = DownloadManager()
+    val discover = DiscoverPanel(frame, downloads)
+    downloads.addStatusListener { discover.showStatus(it) }
+    val library = LibraryPanel(frame, onPlay = playback::playTracks) { lib ->
+        currentLibrary = lib
+        playlists.attach(lib)
+        discover.attach(lib)
+        downloads.attach(lib)
+    }
+    playback.addStateListener { state ->
+        SwingUtilities.invokeLater {
+            // The current track stays highlighted while paused, and the pulse eases back to rest.
+            val trackId = state.track?.id
+            library.showNowPlaying(trackId, state.level)
+            playlists.showNowPlaying(trackId, state.level)
+        }
+    }
     val nav = SideNav(
         names = listOf("Home", "Discover", "Playlists", "Downloads"),
         contents = listOf(
             library,
-            PlaceholderPanel("Discover", "YouTube search is not available yet."),
-            PlaceholderPanel("Playlists", "Playlists are not available yet."),
+            discover,
+            playlists,
             buildDownloadsPanel(frame),
         ),
     )
@@ -82,7 +107,7 @@ internal fun showMainWindow() {
         minimumSize = Dimension(900, 600)
         setSize(1100, 750)
         setLocationRelativeTo(null)
-        contentPane = Backdrop().apply {
+        contentPane = Backdrop(playback::spectrum).apply {
             border = BorderFactory.createEmptyBorder(16, 16, 16, 16)
             add(
                 JPanel(BorderLayout(16, 0)).apply {
@@ -92,11 +117,14 @@ internal fun showMainWindow() {
                 },
                 BorderLayout.CENTER,
             )
-            add(buildPlayerBar(), BorderLayout.SOUTH)
+            add(PlayerBar(downloads, playback).view, BorderLayout.SOUTH)
         }
         addWindowListener(object : WindowAdapter() {
             override fun windowClosing(e: WindowEvent) {
+                playback.close()
                 library.shutdown()
+                discover.shutdown()
+                downloads.shutdown()
                 dispose()
                 exitProcess(0)
             }

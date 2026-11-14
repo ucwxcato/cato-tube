@@ -313,9 +313,8 @@ class MusicLibraryTest {
         val library = openWritable(root)
 
         library.moveInPlaylist("p", "a", -1).get(10, TimeUnit.SECONDS)
-        library.moveInPlaylist("p", "a", 1).get(10, TimeUnit.SECONDS)
-        library.moveInPlaylist("p", "c", 1).get(10, TimeUnit.SECONDS)
-        library.moveInPlaylist("p", "b", 1).get(10, TimeUnit.SECONDS)
+        assertEquals(listOf("a", "b", "c"), library.data.playlists.single().trackIds, "moving the first track up does nothing")
+        library.moveInPlaylist("p", "c", -1).get(10, TimeUnit.SECONDS)
         assertEquals(listOf("a", "c", "b"), library.data.playlists.single().trackIds)
         library.removeFromPlaylist("p", "c").get(10, TimeUnit.SECONDS)
         library.close()

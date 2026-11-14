@@ -335,26 +335,29 @@ Added beyond the original Phase 1 list: title and artist editing (`MusicLibrary.
 
 ### Phase 2 — Playlists
 
-- [ ] `Playlist` model stored inside `library.json` with ordered `trackIds`.
-- [ ] Create playlist, rename playlist, and delete playlist (confirmation; association only).
-- [ ] Add library tracks to a playlist from the context menu and from multi-select. Duplicates within one playlist are rejected with a message.
-- [ ] Remove a track from a playlist (association only) with no file change.
-- [ ] Reorder tracks with Move up and Move down buttons.
-- [ ] Playlists tab: sidebar with name, track count, and total duration; selected playlist's track list.
-- [ ] Add-from-Discover is wired in Phase 3, and Play and Shuffle playlist are wired in Phase 4 (both depend on those phases).
-- [ ] Verify: automated tests for multi-membership (one file, two playlists, one `songs/` entry), delete playlist keeps audio, remove-from-playlist keeps audio, reorder persistence, duplicate rejection.
-- [ ] Verify: restart keeps playlists, memberships, and order (manual close and reopen).
+- [x] `Playlist` model stored inside `library.json` with ordered `trackIds`. Evidence: `Track.kt` `Playlist` and `LibraryData.playlists`; the reorder test reopens the library and reads the order back.
+- [x] Create playlist, rename playlist, and delete playlist (association only). Evidence: `MusicLibraryTest.playlistNamesAreTrimmedRequiredAndUniqueIgnoringCase`, `renameAllowsKeepingTheSameNameButNotTakingAnotherPlaylistsName`, `trackCanBeInSeveralPlaylistsAndDeletingOneKeepsAudioAndTheOther`. Delete asks for confirmation through a themed question dialog; the dialog was not exercised by automation.
+- [x] Add library tracks to a playlist from the Home context menu ("Add to Playlist...", pick an existing playlist or "New playlist..."). Duplicates within one playlist are skipped and the status line says the song is already there (`MusicLibraryTest.addToPlaylistSkipsDuplicatesAndUnknownTracks`). Deviation: multi-select add is not built. Home's track table is single-select, so this item is partly done.
+- [x] Remove a track from a playlist (association only) with no file change. Evidence: `MusicLibraryTest.reorderAndRemoveArePersistedAndKeepTheTrackAudio`.
+- [x] Reorder tracks with Move up and Move down buttons (and right-click menu). Evidence: `MusicLibraryTest.reorderAndRemoveArePersistedAndKeepTheTrackAudio`; the first and last rows cannot move past the ends.
+- [x] Playlists tab: list with name and song count, selected playlist's track list. Deviation: total duration is shown in the detail header, not in the sidebar list.
+- [x] Add-from-Discover (Phase 3) and Play and Shuffle playlist (Phase 4) are wired. Discover adds a result to a playlist when it downloads, and Play and Shuffle use the playback queue.
+- [x] Verify: automated tests for multi-membership (one file, two playlists, one `songs/` entry), delete playlist keeps audio, remove-from-playlist keeps audio, reorder persistence, duplicate rejection. Evidence: `MusicLibraryTest` 6 new playlist tests pass; `./gradlew.bat test` BUILD SUCCESSFUL.
+- [x] Verify: restart keeps playlists, memberships, and order (manual close and reopen). Confirmed manually by the user. The reorder test also reopens the library file.
+- [x] Verify: Playlists page and Add to Playlist dialogs visually from the JAR (`javaw`). Confirmed manually by the user.
+
+Added beyond the original Phase 2 list: playlist names must be non-blank and unique ignoring case (`playlistNameProblem`), checked in the dialog and again in the library worker; the Add to Playlist dialog can create a playlist on the spot.
 
 ### Phase 3 — YouTube discovery and downloads
 
-- [ ] `YouTubeSearch.kt`: `ytsearchN:` runner with `--force-ipv4`, timeout, process cancellation, and defensive per-line JSON parsing.
-- [ ] Discover tab: query field with Enter support, Search button, loading indicator, error messages (no network, yt-dlp missing, no results), scrollable results, and cancellation of the previous search when a new one starts.
+- [x] `YouTubeSearch.kt`: `ytsearchN:` runner with `--force-ipv4`, timeout, process cancellation, and defensive per-line JSON parsing. Evidence: `YouTubeSearchTest` (7 tests) covers the command flags, field parsing, fallbacks, malformed lines, the thumbnail allowlist, and the blank-query guard. Not yet verified: a live search against YouTube, and the timeout and cancel paths against a real yt-dlp process.
+- [ ] Discover tab: query field with Enter support, Search button, loading indicator, error messages (no network, yt-dlp missing, no results), scrollable results, and cancellation of the previous search when a new one starts. Partly done: `ui/DiscoverPanel.kt` has the query field with Enter, Search button, error and no-result messages, a scrollable list, and cancellation of the previous search (stale results are ignored). Open: the loading state is text only (no spinner), results are plain rows (cards come next), and the UI has not been checked in the running app.
 - [ ] Result card: async thumbnail (host allowlist, timeouts, in-memory LRU), title, channel, duration, truncated description with "more" toggle.
-- [ ] Result click opens the info dialog with Add to existing playlist, New playlist, Add to library only, and Cancel. Confirm queues a download. No automatic download.
-- [ ] `DownloadManager.kt`: sequential single worker, states Queued, Extracting, Downloading, Converting, Completed, Failed, Cancelled, using `YtDlpCommands` with the Phase 0 output path.
-- [ ] On success: move MP3 to `songs/` with collision-safe name, ffprobe duration, register track with `youtubeId` and `sourceUrl`, add to chosen playlists, save.
+- [x] Result right-click menu with "Download" and "Download and add to playlist...". Deviation from section 3 item 4: the right-click menu replaces the info dialog, and the menu item is the explicit confirmation. Choosing "Download and add to playlist..." opens a picker for an existing playlist or a new one. A plus button at the right of each result opens the same menu. Evidence: `ui/DiscoverPanel.kt`, and a live right-click download confirmed by the user.
+- [x] `DownloadManager.kt`: sequential single worker (`download/DownloadManager.kt`), using `ytDlpDownloadCommand` (arguments unchanged) into `<library>/.staging/<job>/`. States are reported as status lines, not a queue list. Cancel works from the download ring (click, then confirm). The ring shows the percentage while a download runs. The 2-minute no-output watchdog is enforced. Staging is removed in every outcome.
+- [x] On success: the MP3 is moved to `songs/` with a collision-safe name (`moveAsNewSong`), ffprobe must report a duration before anything is registered, the track is saved with `youtubeId` and `sourceUrl`, and the chosen playlists are updated in the same save. Evidence: `DownloadRegistrationTest` (4 tests, real ffmpeg-made MP3). Confirmed by a live YouTube download in the running app.
+- [x] Dedupe: an existing `youtubeId` is not downloaded again; the existing track joins the requested playlists. Evidence: `DownloadManager.submit`. Not yet exercised live.
 - [ ] On failure or cancel: delete the job's staging directory and create no library entry.
-- [ ] Dedupe: existing `youtubeId` reuses the track and adds memberships without a download.
 - [ ] Active-job guard prevents two jobs writing the same target.
 - [ ] Downloads tab: URL input and Download button (existing flow preserved), queue list with per-item state and percentage, current operation text, Cancel current, Clear completed, Open file location, expandable verbose log.
 - [ ] Missing yt-dlp, ffmpeg, or deno produces a specific message naming the tool; the app stays usable.
@@ -366,17 +369,18 @@ Added beyond the original Phase 1 list: title and artist editing (`MusicLibrary.
 
 ### Phase 4 — Playback
 
-- [ ] `AudioPlayer.kt`: FFmpeg PCM decode into `SourceDataLine` on a dedicated thread; play, pause, stop, seek (restart with `-ss`), position reporting, end-of-track event.
-- [ ] Software volume and mute on the PCM stream.
-- [ ] Missing, corrupt, and unsupported files raise a named error and the queue advances or stops per repeat mode.
-- [ ] Resource release on track switch, stop, end of track, and app exit (process destroyed, line closed, thread joined with timeout).
-- [ ] `PlaybackQueue.kt`: Now Playing, upcoming list, Play Next, Add to Queue, Remove, Move, Clear, auto-advance; shuffle; repeat off, all, and one. Queue state is independent of playlist order.
-- [ ] Queue state survives tab navigation (owned by the model, not the panel).
-- [ ] `PlayerBar.kt`: cover placeholder, title, artist, previous, play and pause, next, seek bar, current and total time, volume, mute, shuffle, repeat, queue button, visualizer toggle. Time updates at a throttled rate with repaints only on change.
-- [ ] Queue panel showing Now Playing and upcoming tracks with reorder and remove.
-- [ ] Wire Play from library double-click, Play playlist, and Shuffle playlist (completes Phase 2 items).
-- [ ] Verify: automated tests for queue behavior (next, previous, repeat modes, seeded shuffle, reorder leaves playlist unchanged).
-- [ ] Verify: real playback of MP3, WAV, FLAC, and Opus files; seek lands at the expected position; volume and mute audible; auto-advance works.
+- [x] `AudioPlayer.kt`: FFmpeg PCM decode into `SourceDataLine` on a dedicated thread; play, pause, stop, seek (restart with `-ss`), position reporting, end-of-track event. Evidence: code in `playback/AudioPlayer.kt`; the owner confirmed playback works in the app. Per-format and seek checks are still open (see the verification item below).
+- [x] Software volume and mute on the PCM stream. Evidence: `AudioPlayer.setVolume`/`setMuted`, wired to the bar. Audible check still open.
+- [ ] Missing, corrupt, and unsupported files raise a named error and the queue advances or stops per repeat mode. Partly done: `PlaybackController.onError` shows the track name and error, then advances. Not tested with a corrupt file.
+- [ ] Resource release on track switch, stop, end of track, and app exit (process destroyed, line closed, thread joined with timeout). `AudioPlayer.close()` runs on window close. The process check is still open (see the verification item below).
+- [x] `PlaybackQueue.kt`: Now Playing, upcoming list, Play Next, Add to Queue, Remove, Move, Clear, auto-advance; shuffle; repeat off, all, and one. Queue state is independent of playlist order. Evidence: `PlaybackQueueTest` (9 tests). The queue editing operations have no UI yet (see the queue panel item).
+- [x] Queue state survives tab navigation. The controller is owned by `MainWindow`, not by a panel.
+- [ ] `PlayerBar.kt`: done: title, artist, previous, play and pause, next, seek bar, current and total time, volume, mute, shuffle, repeat, and the download ring. Not built: cover placeholder, queue button, visualizer toggle.
+- [ ] Queue panel showing Now Playing and upcoming tracks with reorder and remove. Not built.
+- [x] Wire Play from library double-click (and Enter), Play playlist, and Shuffle playlist (completes Phase 2 items).
+- [x] Now-playing row highlight on Home and Playlists: a soft accent halo, a faint fill, and a left bar on the current track, kept separate from the selection pill. The halo pulses with the peak output level from `AudioPlayer.takeLevel()` (sampled each position tick) and eases back to rest on pause or stop. The highlight follows the track through sorting and filtering. Evidence: `SmoothTable.setPlaying`, `PlaybackController` level, `MainWindow` state listener. Visual check still open.
+- [x] Verify: automated tests for queue behavior (next, previous, repeat modes, seeded shuffle, reorder leaves playlist unchanged). Evidence: `PlaybackQueueTest` 9/9 pass.
+- [ ] Verify: real playback of MP3, WAV, FLAC, and Opus files; seek lands at the expected position; volume and mute audible; auto-advance works. Open: the owner confirmed playback works; the per-format, seek, volume, and auto-advance checks are not recorded yet.
 - [ ] Verify: after Stop, after track switch, and after app exit, `Get-Process ffmpeg` shows no leftover process.
 
 ### Phase 5 — Polish
@@ -388,7 +392,7 @@ Added beyond the original Phase 1 list: title and artist editing (`MusicLibrary.
 - [ ] Application shortcuts: Space (play and pause when focus is not in a text field), Ctrl+F (focus search), Ctrl+N (new playlist), Ctrl+O (import local music).
 - [ ] Transport media keys: Play and Pause, Next, Previous, and Stop in application scope only, unless the native spike in section 10 succeeds.
 - [ ] `PcmAnalyzer.kt`: radix-2 FFT with a Hann window over PCM blocks from the playback thread, reduced to a fixed number of bands.
-- [ ] `AudioVisualizer.kt`: throttled delivery to the EDT, Eased animation of bars, stops when playback stops, disabled by the Settings toggle.
+- [x] Full-window visualizer: `playback/SpectrumAnalyzer.kt` splits the PCM into 32 log-spaced bands (Goertzel, Hann window, mono mix) on the playback thread. `PlaybackController.spectrum()` returns zeros unless audio is playing. `Backdrop` in `Theme.kt` draws the bars behind the glass cards on a 33 ms timer, with eased attack and release. Owner decisions: one accent color (no rainbow), bars glow with that accent and are bright, and bars move only with real audio. Not built: the Settings toggle for `visualizerEnabled`. Visual check still open.
 - [ ] Settings dialog: library folder (change, Move existing library or Open another), rescan, visualizer toggle, tool availability probes, fixed MP3 quality notice.
 - [ ] Loading, empty, and error states reviewed across all tabs.
 - [ ] Performance check: library list with 1,000 synthetic tracks stays responsive while scrolling and searching. Record measured numbers in the verification notes; no invented benchmarks.

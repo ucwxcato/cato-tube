@@ -8,6 +8,9 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
 fun main() {
+    // This machine's IPv6 route hangs (thumbnail loads timed out). Prefer IPv4 for every JVM socket,
+    // the same way yt-dlp is run with --force-ipv4. Must be set before any network class loads.
+    System.setProperty("java.net.preferIPv4Stack", "true")
     if (System.console() == null) {
         System.setProperty("awt.useSystemAAFontSettings", "on")
         System.setProperty("swing.aatext", "true")

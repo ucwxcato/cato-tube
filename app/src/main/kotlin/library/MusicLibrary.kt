@@ -4,6 +4,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.Callable
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -90,6 +91,33 @@ internal class MusicLibrary private constructor(
 
     fun recentlyAdded(limit: Int): List<Track> =
         state.data.tracks.sortedByDescending { it.dateAddedEpochMs }.take(limit)
+
+    fun findByYoutubeId(youtubeId: String): Track? = state.data.tracks.firstOrNull { it.youtubeId == youtubeId }
+
+    /**
+     * Registers a finished download. [stagedFile] is moved into songs/ and registered only if
+     * ffprobe can read a duration from it; otherwise nothing is added and the staged file is left
+     * where it is. Blocks the calling thread until the library worker has finished. Returns the
+     * new track, or null.
+     */
+    fun addDownloadedTrack(
+        stagedFile: Path,
+        title: String,
+        youtubeId: String,
+        sourceUrl: String,
+        playlistIds: List<String>,
+        newPlaylistName: String?,
+    ): Track? = worker.submit(Callable {
+        registerDownload(stagedFile, title, youtubeId, sourceUrl, playlistIds, newPlaylistName)
+    }).get()
+
+    /** Adds a track that is already in the library to playlists, for example when a download is a duplicate. */
+    fun addTrackToPlaylists(trackId: String, playlistIds: List<String>, newPlaylistName: String?): Future<*> =
+        runOnWorker("Add to playlist") {
+            commit("Add to playlist") { data ->
+                data.copy(playlists = applyPlaylists(data.playlists, trackId, playlistIds, newPlaylistName))
+            }
+        }
 
     /** [onFinished] runs on the worker with the number of tracks added. */
     fun importFiles(files: List<Path>, onFinished: (Int) -> Unit = {}): Future<*> = runOnWorker("Import") {
@@ -279,6 +307,84 @@ internal class MusicLibrary private constructor(
         return true
     }
 
+    /** Runs on the calling thread via the worker. See [addDownloadedTrack]. */
+    private fun registerDownload(
+        stagedFile: Path,
+        title: String,
+        youtubeId: String,
+        sourceUrl: String,
+        playlistIds: List<String>,
+        newPlaylistName: String?,
+    ): Track? {
+        val cleanTitle = title.trim().ifBlank { "Untitled" }
+        if (readOnlyReason != null) {
+            reportError("\"$cleanTitle\" was not added: the library is read-only.")
+            return null
+        }
+        val duration = MediaProbe.durationMs(stagedFile)
+        if (duration == null) {
+            reportError("\"$cleanTitle\" could not be read by ffprobe, so it was not added.")
+            return null
+        }
+        val target = try {
+            moveAsNewSong(stagedFile, root.resolve(SONGS_DIR), cleanTitle)
+        } catch (e: IOException) {
+            reportError("Could not save \"$cleanTitle\": ${e.message ?: e.javaClass.simpleName}")
+            return null
+        }
+        val track = Track(
+            id = UUID.randomUUID().toString(),
+            title = cleanTitle,
+            relativePath = relativeSongPath(target),
+            dateAddedEpochMs = System.currentTimeMillis(),
+            durationMs = duration,
+            sourceUrl = sourceUrl,
+            youtubeId = youtubeId,
+        )
+        val saved = commit("Download") { data ->
+            data.copy(
+                tracks = data.tracks + track,
+                playlists = applyPlaylists(data.playlists, track.id, playlistIds, newPlaylistName),
+            )
+        }
+        if (!saved) {
+            Files.deleteIfExists(target)
+            return null
+        }
+        return track
+    }
+
+    /**
+     * Adds [trackId] to the chosen existing playlists and, when [newPlaylistName] is given, to a new
+     * playlist with that name. An invalid new name is reported and skipped; the other changes stand.
+     */
+    private fun applyPlaylists(
+        playlists: List<Playlist>,
+        trackId: String,
+        playlistIds: List<String>,
+        newPlaylistName: String?,
+    ): List<Playlist> {
+        val updated = playlists.map { playlist ->
+            if (playlist.id in playlistIds && trackId !in playlist.trackIds) {
+                playlist.copy(trackIds = playlist.trackIds + trackId)
+            } else {
+                playlist
+            }
+        }
+        val name = newPlaylistName?.trim()?.takeIf { it.isNotEmpty() } ?: return updated
+        val problem = playlistNameProblem(name, playlists, exceptId = null)
+        if (problem != null) {
+            reportError(problem)
+            return updated
+        }
+        return updated + Playlist(
+            id = UUID.randomUUID().toString(),
+            name = name,
+            trackIds = listOf(trackId),
+            createdEpochMs = System.currentTimeMillis(),
+        )
+    }
+
     private fun newTrack(file: Path, relative: String, dateAddedMs: Long): Track = Track(
         id = UUID.randomUUID().toString(),
         title = file.fileName.toString().substringBeforeLast('.').ifBlank { "Untitled" },
@@ -325,7 +431,7 @@ internal class MusicLibrary private constructor(
             .toSet(),
     )
 
-    private fun comparatorFor(sort: TrackSort): Comparator<Track> = when (sort) {
+    internal fun comparatorFor(sort: TrackSort): Comparator<Track> = when (sort) {
         TrackSort.TITLE -> compareBy { it.title.lowercase() }
         TrackSort.ARTIST -> compareBy<Track> { it.artist.lowercase() }.thenBy { it.title.lowercase() }
         TrackSort.DURATION -> compareBy<Track> { it.durationMs ?: 0L }.thenBy { it.title.lowercase() }
