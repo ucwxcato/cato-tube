@@ -58,6 +58,8 @@ internal class PlaylistsPanel(
     private val frame: JFrame,
     private val onPlay: (tracks: List<Track>, index: Int) -> Unit = { _, _ -> },
     private val onShuffle: (tracks: List<Track>) -> Unit = {},
+    private val onPlayNext: (Track) -> Unit = {},
+    private val onQueue: (Track) -> Unit = {},
 ) : JPanel(BorderLayout(0, 12)) {
     private var library: MusicLibrary? = null
     private var selectedId: String? = null
@@ -111,6 +113,8 @@ internal class PlaylistsPanel(
 
     private val popup = ThemedPopupMenu()
     private val editItem = menuItem("Edit Details...") { selectedTrack()?.let(::editSelected) }
+    private val playNextItem = menuItem("Play Next") { selectedTrack()?.let(onPlayNext) }
+    private val queueItem = menuItem("Add to Queue") { selectedTrack()?.let(onQueue) }
     private val upItem = menuItem("Move up") { moveSelected(-1) }
     private val downItem = menuItem("Move down") { moveSelected(1) }
     private val removeItem = menuItem("Remove from playlist", Palette.danger) { removeSelected() }
@@ -149,6 +153,8 @@ internal class PlaylistsPanel(
             }
         })
         popup.add(editItem)
+        popup.add(playNextItem)
+        popup.add(queueItem)
         popup.add(ThemedMenuSeparator())
         popup.add(upItem)
         popup.add(downItem)

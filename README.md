@@ -63,9 +63,10 @@ For development, you can also run the app through Gradle:
 
 The first time you open the app, choose a library folder. The library keeps its index in `library.json` and copies downloaded songs into a `songs` folder. Original files are never moved or changed.
 
-- **Home** lists your songs with search, sort, and a Recent or All scope. Double-click a song, or select it and press Enter, to play it. Right-click a song to add it to a playlist, open its file location, edit its details, or remove it from the library.
+- **Home** lists your songs with search, sort, and a Recent or All scope. Double-click a song, or select it and press Enter, to play it. Right-click a song to play it next, add it to the queue or a playlist, open its file location, edit its details, or remove it from the library.
 - **Discover** searches YouTube. Click the plus at the right of a result, or right-click it, to download it or to download it and add it to a playlist. Downloads run one at a time, and a song already in your library is not downloaded again. Searching alone never downloads anything.
 - **Playlists** lists your playlists on the left. Play starts a playlist from the top, and Shuffle plays it in random order. Select a playlist to reorder its songs with Move up and Move down, or remove a song from it. Removing a song from a playlist never deletes the audio file. Deleting a playlist keeps its songs in the library.
+- **Queue** shows the song that is playing and the songs that play next. The tab shows how many songs are queued, and it glows while the queue has songs. Double-click a song, or select it and press Enter, to play it now. Move up, Move down, Remove, and Clear queue change only the queue. They never touch a playlist or the library.
 - **Downloads** takes a single-video URL from `youtube.com` or `youtu.be`. Playlist links are rejected. The MP3 is saved to the folder shown under "Save to".
 - **Bottom bar** controls playback and stays visible on every page. While a download runs, a ring on the right shows its percentage. Click the ring to cancel the download after confirming.
 - **Accent** (bottom of the sidebar) changes the highlight color.

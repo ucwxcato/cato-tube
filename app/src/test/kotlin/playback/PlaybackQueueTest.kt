@@ -80,12 +80,13 @@ class PlaybackQueueTest {
     }
 
     @Test
-    fun playNextAndAddToQueuePlaceTracksAroundTheUpcomingList() {
+    fun playNextAndAddToQueuePlaceTracksAheadOfThePlaylistRest() {
         val queue = PlaybackQueue()
         queue.start(listOf(a, b), 0)
         queue.addToQueue(c)
         queue.playNext(d)
-        assertEquals(listOf(d.id, b.id, c.id), queue.upcoming().map { it.id })
+        assertEquals(listOf(d.id, c.id), queue.queued().map { it.id })
+        assertEquals(listOf(d.id, c.id, b.id), queue.upcoming().map { it.id })
     }
 
     @Test
@@ -93,18 +94,61 @@ class PlaybackQueueTest {
         val source = listOf(a, b, c, d)
         val queue = PlaybackQueue()
         queue.start(source, 0)
-        queue.move(2, 0)
+        queue.addToQueue(c)
+        queue.addToQueue(d)
+        queue.move(1, 0)
         queue.remove(1)
-        assertEquals(listOf(d.id, c.id), queue.upcoming().map { it.id })
+        assertEquals(listOf(d.id), queue.queued().map { it.id })
         assertEquals(listOf("a", "b", "c", "d"), source.map { it.id })
     }
 
     @Test
-    fun clearKeepsTheCurrentTrack() {
+    fun playlistSongsAreNotInTheQueueUnlessAddedByHand() {
         val queue = PlaybackQueue()
         queue.start(listOf(a, b, c), 0)
+        assertEquals(emptyList(), queue.queued())
+        assertEquals(listOf(b.id, c.id), queue.upcoming().map { it.id })
+    }
+
+    @Test
+    fun clearRemovesQueuedSongsAndLeavesThePlaylistRunning() {
+        val queue = PlaybackQueue()
+        queue.start(listOf(a, b, c), 0)
+        queue.addToQueue(d)
         queue.clear()
         assertEquals(a.id, queue.now?.id)
-        assertEquals(emptyList(), queue.upcoming())
+        assertEquals(emptyList(), queue.queued())
+        assertEquals(listOf(b.id, c.id), queue.upcoming().map { it.id })
+    }
+
+    @Test
+    fun skipToPlaysTheChosenQueuedTrackAndDropsTheOnesAheadOfIt() {
+        val queue = PlaybackQueue()
+        queue.start(listOf(a), 0)
+        queue.addToQueue(b)
+        queue.addToQueue(c)
+        queue.addToQueue(d)
+        assertEquals(c.id, queue.skipTo(1)?.id)
+        assertEquals(listOf(d.id), queue.queued().map { it.id })
+    }
+
+    @Test
+    fun previousAfterSkipGoesToTheSkippedTrack() {
+        val queue = PlaybackQueue()
+        queue.start(listOf(a), 0)
+        queue.addToQueue(b)
+        queue.addToQueue(c)
+        queue.skipTo(1)
+        assertEquals(c.id, queue.now?.id)
+        assertEquals(b.id, queue.previous()?.id)
+    }
+
+    @Test
+    fun skipToOutOfRangeChangesNothing() {
+        val queue = PlaybackQueue()
+        queue.start(listOf(a, b), 0)
+        assertNull(queue.skipTo(5))
+        assertEquals(a.id, queue.now?.id)
+        assertEquals(listOf(b.id), queue.upcoming().map { it.id })
     }
 }

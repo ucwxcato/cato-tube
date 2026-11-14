@@ -71,6 +71,8 @@ private val AUDIO_EXTENSIONS = arrayOf("mp3", "wav", "flac", "opus")
 internal class LibraryPanel(
     private val frame: JFrame,
     private val onPlay: (tracks: List<Track>, index: Int) -> Unit = { _, _ -> },
+    private val onPlayNext: (Track) -> Unit = {},
+    private val onQueue: (Track) -> Unit = {},
     private val onLibraryChanged: (MusicLibrary?) -> Unit = {},
 ) : JPanel(BorderLayout(0, 12)) {
     private var library: MusicLibrary? = null
@@ -123,6 +125,8 @@ internal class LibraryPanel(
     private val openLocationItem = menuItem("Open File Location") { selectedTrack()?.let(::openFileLocation) }
     private val editItem = menuItem("Edit Details...") { selectedTrack()?.let(::editDetails) }
     private val addToPlaylistItem = menuItem("Add to Playlist...") { selectedTrack()?.let(::addToPlaylist) }
+    private val playNextItem = menuItem("Play Next") { selectedTrack()?.let(onPlayNext) }
+    private val queueItem = menuItem("Add to Queue") { selectedTrack()?.let(onQueue) }
     private val removeItem = menuItem("Remove from Library...", tint = Palette.danger) { selectedTrack()?.let(::confirmRemove) }
 
     init {
@@ -285,6 +289,8 @@ internal class LibraryPanel(
         popup.add(openLocationItem)
         popup.add(editItem)
         popup.add(addToPlaylistItem)
+        popup.add(playNextItem)
+        popup.add(queueItem)
         popup.add(ThemedMenuSeparator())
         popup.add(removeItem)
     }

@@ -33,11 +33,22 @@ internal fun showMainWindow() {
     }
     var currentLibrary: MusicLibrary? = null
     val playback = PlaybackController { track -> currentLibrary?.root?.resolve(track.relativePath) }
-    val playlists = PlaylistsPanel(frame, onPlay = playback::playTracks, onShuffle = playback::playShuffled)
+    val playlists = PlaylistsPanel(
+        frame,
+        onPlay = playback::playTracks,
+        onShuffle = playback::playShuffled,
+        onPlayNext = playback::playNextInQueue,
+        onQueue = playback::addToQueue,
+    )
     val downloads = DownloadManager()
     val discover = DiscoverPanel(frame, downloads)
     downloads.addStatusListener { discover.showStatus(it) }
-    val library = LibraryPanel(frame, onPlay = playback::playTracks) { lib ->
+    val library = LibraryPanel(
+        frame,
+        onPlay = playback::playTracks,
+        onPlayNext = playback::playNextInQueue,
+        onQueue = playback::addToQueue,
+    ) { lib ->
         currentLibrary = lib
         playlists.attach(lib)
         discover.attach(lib)
@@ -51,15 +62,23 @@ internal fun showMainWindow() {
             playlists.showNowPlaying(trackId, state.level)
         }
     }
+    val queue = QueuePanel(frame, playback)
     val nav = SideNav(
-        names = listOf("Home", "Discover", "Playlists", "Downloads"),
+        names = listOf("Home", "Discover", "Playlists", "Queue", "Downloads"),
         contents = listOf(
             library,
             discover,
             playlists,
+            queue,
             buildDownloadsPanel(frame),
         ),
     )
+    playback.addQueueListener { now, upcoming ->
+        SwingUtilities.invokeLater {
+            queue.update(now, upcoming)
+            nav.setCount("Queue", upcoming.size)
+        }
+    }
 
     val brand = JPanel(BorderLayout(12, 0)).apply {
         isOpaque = false

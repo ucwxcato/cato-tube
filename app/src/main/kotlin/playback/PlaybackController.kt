@@ -33,6 +33,9 @@ internal class PlaybackController(private val resolve: (Track) -> Path?) : Playb
     private val player = AudioPlayer(this)
     private val stateListeners = CopyOnWriteArrayList<(PlayerState) -> Unit>()
     private val errorListeners = CopyOnWriteArrayList<(String) -> Unit>()
+    private val queueListeners = CopyOnWriteArrayList<(Track?, List<Track>) -> Unit>()
+    private var notifiedNow: Track? = null
+    private var notifiedUpcoming: List<Track> = emptyList()
 
     /** True from play until the track ends, playback fails, or the queue runs out. Pausing keeps it true. */
     private var active = false
@@ -48,6 +51,55 @@ internal class PlaybackController(private val resolve: (Track) -> Path?) : Playb
 
     fun addErrorListener(listener: (String) -> Unit) {
         errorListeners += listener
+    }
+
+    /** Called with the current track and the upcoming list whenever either changes. Runs on the caller's thread. */
+    fun addQueueListener(listener: (Track?, List<Track>) -> Unit) {
+        queueListeners += listener
+    }
+
+    @Synchronized
+    fun currentQueue(): Pair<Track?, List<Track>> = queue.now to queue.queued()
+
+    /** Plays [track] next. Starts playback when nothing is queued. */
+    @Synchronized
+    fun playNextInQueue(track: Track) {
+        val wasEmpty = queue.now == null
+        queue.playNext(track)
+        if (wasEmpty) playCurrent(0L) else publish()
+    }
+
+    /** Adds [track] to the end of the queue. Starts playback when nothing is queued. */
+    @Synchronized
+    fun addToQueue(track: Track) {
+        val wasEmpty = queue.now == null
+        queue.addToQueue(track)
+        if (wasEmpty) playCurrent(0L) else publish()
+    }
+
+    /** Plays the upcoming track at [index] now and drops the tracks ahead of it. */
+    @Synchronized
+    fun playQueueItem(index: Int) {
+        if (queue.skipTo(index) == null) return
+        playCurrent(0L)
+    }
+
+    @Synchronized
+    fun removeFromQueue(index: Int) {
+        queue.remove(index)
+        publish()
+    }
+
+    @Synchronized
+    fun moveInQueue(from: Int, to: Int) {
+        queue.move(from, to)
+        publish()
+    }
+
+    @Synchronized
+    fun clearQueue() {
+        queue.clear()
+        publish()
     }
 
     /** Replaces the queue with [tracks], starts the track at [index], and plays it. */
@@ -212,5 +264,12 @@ internal class PlaybackController(private val resolve: (Track) -> Path?) : Playb
             level = level,
         )
         stateListeners.forEach { it(state) }
+        val now = queue.now
+        val upcoming = queue.queued()
+        if (now != notifiedNow || upcoming != notifiedUpcoming) {
+            notifiedNow = now
+            notifiedUpcoming = upcoming
+            queueListeners.forEach { it(now, upcoming) }
+        }
     }
 }

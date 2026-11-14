@@ -9,12 +9,17 @@ internal enum class RepeatMode { OFF, ALL, ONE }
  * Play order for the player. It holds copies of tracks, not playlist positions, so reordering or
  * clearing the queue never changes a playlist.
  *
+ * Two lists make up the order. [queued] holds songs the user added with Play Next or Add to Queue, and
+ * the Queue tab shows only that list. [rest] holds what is left of the playlist or library that was
+ * started, and it plays after the queued songs.
+ *
  * [next] is the manual Next button and always moves on. [onTrackEnded] is the automatic path and
  * honors [RepeatMode.ONE]. [RepeatMode.ALL] replays the tracks given to [start].
  */
 internal class PlaybackQueue {
     private val history = ArrayList<Track>()
-    private val upcoming = ArrayList<Track>()
+    private val queued = ArrayList<Track>()
+    private val rest = ArrayList<Track>()
     private var source: List<Track> = emptyList()
 
     /** The track that is playing or was last played, or null when the queue is empty or finished. */
@@ -27,7 +32,11 @@ internal class PlaybackQueue {
     var shuffle: Boolean = false
         private set
 
-    fun upcoming(): List<Track> = upcoming.toList()
+    /** Everything that plays after the current track, in play order: queued songs first, then the rest. */
+    fun upcoming(): List<Track> = queued + rest
+
+    /** Songs the user added, in play order. This is what the Queue tab shows. */
+    fun queued(): List<Track> = queued.toList()
 
     /**
      * Replaces the queue with [tracks], starting at [index], and returns the track to play.
@@ -35,30 +44,31 @@ internal class PlaybackQueue {
      */
     fun start(tracks: List<Track>, index: Int, random: Random = Random.Default): Track? {
         history.clear()
-        upcoming.clear()
+        queued.clear()
+        rest.clear()
         source = tracks.toList()
         if (index !in tracks.indices) {
             now = null
             return null
         }
         now = tracks[index]
-        upcoming.addAll(tracks.drop(index + 1))
-        if (shuffle) upcoming.shuffle(random)
+        rest.addAll(tracks.drop(index + 1))
+        if (shuffle) rest.shuffle(random)
         return now
     }
 
     /** Manual Next: moves to the next track even when repeat is [RepeatMode.ONE]. */
     fun next(random: Random = Random.Default): Track? {
         val current = now ?: return null
-        if (upcoming.isNotEmpty()) {
+        takeFollowing()?.let {
             history.add(current)
-            now = upcoming.removeAt(0)
+            now = it
             return now
         }
         if (repeat == RepeatMode.ALL && source.isNotEmpty()) {
             history.clear()
-            upcoming.addAll(source.drop(1))
-            if (shuffle) upcoming.shuffle(random)
+            rest.addAll(source.drop(1))
+            if (shuffle) rest.shuffle(random)
             now = source.first()
             return now
         }
@@ -79,36 +89,52 @@ internal class PlaybackQueue {
      */
     fun previous(): Track? {
         val last = history.removeLastOrNull() ?: return now
-        now?.let { upcoming.add(0, it) }
+        now?.let { rest.add(0, it) }
         now = last
         return now
     }
 
-    /** Puts [track] at the front of the upcoming list. If nothing is playing, [track] becomes the current track. */
+    /** Puts [track] at the front of the queue. If nothing is playing, [track] becomes the current track. */
     fun playNext(track: Track) {
-        if (now == null) now = track else upcoming.add(0, track)
+        if (now == null) now = track else queued.add(0, track)
     }
 
-    /** Adds [track] to the end of the upcoming list. If nothing is playing, [track] becomes the current track. */
+    /** Adds [track] to the end of the queue. If nothing is playing, [track] becomes the current track. */
     fun addToQueue(track: Track) {
-        if (now == null) now = track else upcoming.add(track)
+        if (now == null) now = track else queued.add(track)
+    }
+
+    /** Plays the queued track at [index] now. Queued tracks ahead of it are dropped; the playlist rest is kept. */
+    fun skipTo(index: Int): Track? {
+        if (index !in queued.indices) return null
+        now?.let { history.add(it) }
+        repeat(index) { history.add(queued.removeAt(0)) }
+        now = queued.removeAt(0)
+        return now
     }
 
     fun remove(index: Int) {
-        if (index in upcoming.indices) upcoming.removeAt(index)
+        if (index in queued.indices) queued.removeAt(index)
     }
 
     fun move(from: Int, to: Int) {
-        if (from !in upcoming.indices || to !in upcoming.indices || from == to) return
-        upcoming.add(to, upcoming.removeAt(from))
+        if (from !in queued.indices || to !in queued.indices || from == to) return
+        queued.add(to, queued.removeAt(from))
     }
 
+    /** Removes every queued song. The rest of the playlist keeps playing. */
     fun clear() {
-        upcoming.clear()
+        queued.clear()
     }
 
     fun setShuffle(on: Boolean, random: Random = Random.Default) {
         shuffle = on
-        if (on) upcoming.shuffle(random)
+        if (on) rest.shuffle(random)
+    }
+
+    private fun takeFollowing(): Track? = when {
+        queued.isNotEmpty() -> queued.removeAt(0)
+        rest.isNotEmpty() -> rest.removeAt(0)
+        else -> null
     }
 }
