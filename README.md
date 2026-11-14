@@ -1,14 +1,15 @@
 # CatoTube
 
-A small Kotlin command-line app that prompts for one YouTube video URL and saves its best available audio as an MP3 in `downloads/`. MP3 encoding uses FFmpeg's highest quality VBR setting (`-V 0`). The audio source quality still depends on what YouTube provides.
+A Kotlin/JVM desktop app that saves the best available audio from a single YouTube video as an MP3. It has a Swing window (opened by double-clicking the JAR) and a command-line mode (used when a console is attached). MP3 encoding uses FFmpeg's highest quality VBR setting (`-V 0`). The audio source quality still depends on what YouTube provides.
 
 ## Requirements
 
-- JDK 17 or newer
+- JDK 25 (the Gradle build pins toolchain 25)
 - `yt-dlp` available on `PATH`
 - `ffmpeg` available on `PATH` (required by yt-dlp for MP3 conversion)
+- `deno` available on `PATH` (the JavaScript challenge solver used by yt-dlp)
 
-On Windows, install both with WinGet from PowerShell:
+On Windows, install yt-dlp and FFmpeg with WinGet from PowerShell:
 
 ```powershell
 winget install --source winget --id yt-dlp.yt-dlp
@@ -25,17 +26,15 @@ Build a standalone executable JAR from the project directory:
 ./gradlew.bat :app:jar
 ```
 
-The file will be `app/build/libs/app-all.jar`. Run it with Java:
+The file will be `app/build/libs/app-all.jar`. The JAR bundles the app and its JVM dependencies. `yt-dlp`, `ffmpeg`, and `deno` remain separate tools and must be available on `PATH`.
+
+Double-click `app-all.jar` to open the window, or run it with Java:
 
 ```powershell
 java -jar .\app\build\libs\app-all.jar
 ```
 
-The JAR bundles the app and its JVM dependencies. `yt-dlp` and `ffmpeg` remain separate system tools and must be available on `PATH`.
-
-On Windows, double-click `app-all.jar` to open the dark URL entry window. It includes a save-folder picker and download progress bar. If Windows does not associate JAR files with Java, run it with the `java -jar` command above. The app still needs `yt-dlp` and FFmpeg installed.
-
-CatoTube forces IPv4 for yt-dlp requests. On the development machine, YouTube and npm returned quickly over IPv4 while IPv6 connections timed out; using IPv4 reduced extraction of a test clip from a long stall to about six seconds. This setting is local to CatoTube and does not change Windows networking.
+`java -jar` attaches to the console and starts the command-line mode. To open the window from a terminal, use `javaw -jar .\app\build\libs\app-all.jar`.
 
 For development, you can also run it through Gradle:
 
@@ -43,6 +42,14 @@ For development, you can also run it through Gradle:
 ./gradlew.bat :app:run
 ```
 
-Enter a single-video URL from `youtube.com` or `youtu.be` when prompted. The app rejects playlist expansion and stores the resulting MP3 in the project’s `downloads` directory. Keep the output filename when importing the track into RoboBeat.
+## Using the window
 
-Use this only for videos and audio you own or have permission to download and use. Check YouTube’s terms and the game’s custom music requirements before importing audio.
+- **Home** lists songs in your library with search, sort, and a Recent/All scope. Right-click a song to open its file location, edit its details, or remove it from the library.
+- **Downloads** takes a single-video URL from `youtube.com` or `youtu.be`. The app rejects playlist expansion. The MP3 is saved in the folder shown under "Save to", which defaults to the project's `downloads` directory.
+- **Accent** (bottom of the sidebar) changes the highlight color and is remembered between runs.
+
+The first time you open the app, you choose a library folder. The library keeps its index in `library.json` and copies imported songs into a `songs` folder. Original files are never moved or changed.
+
+CatoTube forces IPv4 for yt-dlp requests. On the development machine, YouTube and npm returned quickly over IPv4 while IPv6 connections timed out; using IPv4 reduced extraction of a test clip from a long stall to about six seconds. This setting is local to CatoTube and does not change Windows networking.
+
+Use this only for videos and audio you own or have permission to download and use. Check YouTube's terms before downloading or using any audio.
