@@ -64,5 +64,8 @@ replay_pid*
 # Operating system files
 .DS_Store
 Thumbs.db
-Desktop.ini
+Desktop.
+
+#LastFM Api Key
+lastFM-apikey
 
