@@ -9,14 +9,15 @@ CatoTube is a Kotlin/JVM app that saves the best available audio from a single Y
 - **Swing window**: opens when `System.console()` is null (for example, double-clicking the JAR).
 - **CLI**: runs when a console is attached.
 
-Downloads run through external `yt-dlp` and FFmpeg processes. The app does not bundle either tool.
+Downloads run through external `yt-dlp` and FFmpeg processes, and `ffprobe` reads durations. deno runs inside yt-dlp. The app does not bundle any of these tools.
 
 Use only for audio the user owns or is authorized to use. Do not add features that bypass YouTube access controls.
 
 ## Layout
 
 - `app/src/main/kotlin/App.kt`: entry point, CLI, UIManager defaults, and window launch.
-- `app/src/main/kotlin/ui/`: main window, sidebar navigation, library, playlists, and downloads panels, startup and library-folder dialogs, and themed dialogs.
+- `app/src/main/kotlin/ui/`: main window, sidebar navigation, library, playlists, and downloads panels, startup and library-folder dialogs, the external-tools setup dialog, and themed dialogs.
+- `app/src/main/kotlin/tools/`: version probes for yt-dlp, ffmpeg, ffprobe, and deno, used by the startup check.
 - `app/src/main/kotlin/library/`: library model (tracks and playlists), storage with atomic save and backup, file names, media probing, and scanning.
 - `app/src/main/kotlin/download/`: yt-dlp command construction, YouTube URL validation and search, the sequential `DownloadManager` (staging and registration), and the 2-minute no-output watchdog.
 - `app/src/main/kotlin/playback/`: `AudioPlayer` (FFmpeg PCM into a `SourceDataLine` on one thread), `PlaybackQueue` (order, repeat, shuffle; no UI), and `PlaybackController` (owns the engine and queue for the window).
@@ -34,6 +35,7 @@ Run from the repository root on Windows PowerShell:
 
 ```powershell
 ./gradlew.bat :app:jar      # build app/build/libs/app-all.jar
+./gradlew.bat :app:packageWindows  # build the app folder app/build/installer/CatoTube/CatoTube.exe (jpackage)
 ./gradlew.bat :app:run      # run from Gradle (CLI when a console is attached)
 ./gradlew.bat test          # run all tests (JUnit Platform)
 ./gradlew.bat :utils:test   # utils tests only
@@ -41,7 +43,7 @@ Run from the repository root on Windows PowerShell:
 
 Launching the GUI from a terminal: `java -jar` attaches to the console and starts the CLI. To test the window, launch with `javaw -jar app\build\libs\app-all.jar`.
 
-External tools must be on `PATH` for real downloads: `yt-dlp`, `ffmpeg`, and `deno` (the JS challenge solver).
+External tools must be on `PATH` for real downloads: `yt-dlp`, `ffmpeg`, `ffprobe`, and `deno` (the JS challenge solver).
 
 ## Code conventions
 
@@ -67,4 +69,5 @@ External tools must be on `PATH` for real downloads: `yt-dlp`, `ffmpeg`, and `de
 - Do not commit or push unless the user asks.
 - Don't edit `gradle/wrapper/` or the Gradle version without a reason.
 - The JDK toolchain is pinned in `buildSrc` (25). Keep the JDK requirement in `README.md` in sync when you change it.
+- The Windows app image is built by `:app:packageWindows` (jpackage from the JDK 25 toolchain, no packaging plugin). Do not bundle yt-dlp, FFmpeg, ffprobe, or deno without changing the devplan decision in section 1 first.
 - Keep `README.md` and `DOCS/music-player-devplan.md` accurate when behavior, flags, or the window change.

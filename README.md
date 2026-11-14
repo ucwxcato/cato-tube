@@ -24,16 +24,20 @@ CatoTube is not a streaming app. It does not play music from YouTube. Every song
 - JDK 25 (the Gradle build pins toolchain 25)
 - `yt-dlp` on `PATH`
 - `ffmpeg` on `PATH` (used for MP3 conversion and playback)
+- `ffprobe` on `PATH` (reads song durations; it ships with FFmpeg)
 - `deno` on `PATH` (the JavaScript challenge solver used by yt-dlp)
 
-CatoTube does not bundle these tools. On Windows, install yt-dlp and FFmpeg with WinGet from PowerShell:
+CatoTube does not bundle these tools. On Windows, install them with WinGet from PowerShell:
 
 ```powershell
 winget install --source winget --id yt-dlp.yt-dlp
 winget install --source winget --id Gyan.FFmpeg
+winget install --source winget --id DenoLand.Deno
 ```
 
-Close and reopen CatoTube after installing so Windows supplies the updated `PATH`.
+The FFmpeg package includes `ffprobe`. Close and reopen CatoTube after installing so Windows supplies the updated `PATH`.
+
+CatoTube checks these four tools every time it starts. If one is missing, a setup dialog lists each tool with its install command and a Copy button. The same status is printed in the command-line mode.
 
 ## Build and run
 
@@ -43,7 +47,7 @@ Build the standalone JAR from the project directory:
 ./gradlew.bat :app:jar
 ```
 
-The file is `app/build/libs/app-all.jar`. It bundles the app and its JVM dependencies. `yt-dlp`, `ffmpeg`, and `deno` stay separate and must be on `PATH`.
+The file is `app/build/libs/app-all.jar`. It bundles the app and its JVM dependencies. `yt-dlp`, `ffmpeg`, `ffprobe`, and `deno` stay separate and must be on `PATH`.
 
 Double-click `app-all.jar` to open the window, or run it from a terminal:
 
@@ -52,6 +56,14 @@ javaw -jar .\app\build\libs\app-all.jar
 ```
 
 `java -jar` attaches to the console and starts the command-line mode instead of the window.
+
+To build a Windows app folder with its own Java runtime:
+
+```powershell
+./gradlew.bat :app:packageWindows
+```
+
+The output is `app/build/installer/CatoTube/CatoTube.exe`. Running the app folder needs no separate Java install, because the folder includes its own runtime. Start it from that folder, or pin it to the taskbar or Start menu. The folder contains the JVM and the app only, so `yt-dlp`, `ffmpeg`, `ffprobe`, and `deno` must still be on `PATH`. To share the app, zip the `CatoTube` folder. Windows SmartScreen may warn about an unsigned build.
 
 For development, you can also run the app through Gradle:
 

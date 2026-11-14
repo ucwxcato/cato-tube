@@ -74,6 +74,7 @@ internal object Palette {
     val text = Color(204, 198, 190)         // primary UI text, warm off-white (not pure white)
     val muted = Color(134, 128, 122)        // secondary labels, warm grey
     val danger = Color(214, 84, 80)
+    val success = Color(105, 168, 110)
     val rose = Color(120, 72, 56)           // warm light, top left
     val violet = Color(120, 90, 170)
     val glassSheen = Color(255, 255, 255, 18)

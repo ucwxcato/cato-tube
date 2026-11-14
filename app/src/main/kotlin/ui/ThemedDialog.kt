@@ -94,7 +94,7 @@ private fun messageLabel(message: String): JComponent = JLabel(
     foreground = Palette.text
 }
 
-private fun themedWindow(
+internal fun themedWindow(
     owner: JFrame,
     title: String,
     body: JComponent,

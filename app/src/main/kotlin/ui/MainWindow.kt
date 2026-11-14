@@ -155,5 +155,6 @@ internal fun showMainWindow() {
         val opened = LibrarySetup.resolveStartup(frame)
         library.attach(opened)
         LibrarySetup.offerDownloadsImport(frame, opened, library::showFeedback)
+        ToolSetup.checkInBackground(frame)
     }
 }

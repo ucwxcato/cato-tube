@@ -3,6 +3,8 @@ package org.catosaur.app
 import org.catosaur.app.download.DEFAULT_DOWNLOAD_DIRECTORY
 import org.catosaur.app.download.isYouTubeUrl
 import org.catosaur.app.download.ytDlpDownloadCommand
+import org.catosaur.app.tools.ToolProbe
+import org.catosaur.app.tools.ToolStatus
 import org.catosaur.app.ui.showMainWindow
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -24,6 +26,7 @@ fun main() {
 private fun runCli() {
     println("YouTube audio downloader")
     println("Only download audio you own or are authorized to use.\n")
+    printToolStatus()
 
     print("YouTube URL: ")
     val url = readlnOrNull()?.trim().orEmpty()
@@ -46,6 +49,26 @@ private fun runCli() {
         Thread.currentThread().interrupt()
         System.err.println("Download interrupted.")
     }
+}
+
+private fun printToolStatus() {
+    println("External tools:")
+    val checks = ToolProbe.checkAll()
+    for (check in checks) {
+        val state = when (check.status) {
+            ToolStatus.Found -> "found (${check.displayVersion})"
+            ToolStatus.Missing -> "not found"
+            ToolStatus.Failed -> "did not run (${check.detail})"
+        }
+        println("  ${check.tool.label.padEnd(8)} $state")
+    }
+    val missing = checks.filter { !it.ok }
+    if (missing.isNotEmpty()) {
+        println()
+        println("Install the missing tools, then reopen CatoTube:")
+        missing.map { it.tool.install }.distinct().forEach { println("  $it") }
+    }
+    println()
 }
 
 private fun showWindow() {

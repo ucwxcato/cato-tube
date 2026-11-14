@@ -1,12 +1,12 @@
 # CatoTube 2.0 — Desktop Music Player — Development Plan
 
-> **Status:** Planned. No CatoTube 2.0 phase is implemented yet. Baseline: the Swing dark theme in `Theme.kt` and the restyled window in `App.kt` were launched with `javaw` and captured visually (window renders; logo glyph was then changed to `C` and rebuilt, not re-inspected).
+> **Status:** Phases 1 and 2 are complete. Phase 0 is complete except one finding carried into Phase 3. Phases 3 to 5 are partly done, with open items marked in section 9. Phase 6 is not started. Phase 7 (packaging and onboarding) is implemented, with two verification items open. Baseline: the Swing dark theme in `Theme.kt` and the restyled window in `App.kt` were launched with `javaw` and captured visually (window renders; logo glyph was then changed to `C` and rebuilt, not re-inspected).
 >
 > **Purpose:** Turn CatoTube from a YouTube-to-MP3 downloader into a local desktop music player with a persistent library, playlists, YouTube discovery, and playback, without accounts or online services.
 >
 > **Authority:** This document owns the CatoTube 2.0 scope, locked decisions, data model, and phase gates. Source request: `PROMPTS/musicplayerprompt01.md`. Repository rules that still apply: `AGENTS.md`, `README.md`.
 >
-> **Target:** Windows 10/11, Kotlin/JVM with Swing, JDK toolchain 25 (`buildSrc`), external `yt-dlp`, `ffmpeg`, `ffprobe`, and `deno` on `PATH`. Build output `app/build/libs/app-all.jar`.
+> **Target:** Windows 10/11, Kotlin/JVM with Swing, JDK toolchain 25 (`buildSrc`), external `yt-dlp`, `ffmpeg`, `ffprobe`, and `deno` on `PATH`. Build output `app/build/libs/app-all.jar`. Distribution: a `jpackage` app-image in `app/build/installer/CatoTube/` (section 1, packaging decision).
 
 Evidence labels used below: **Verified** (source plus active runtime check), **Installed** (artifact exists, not gameplay-checked), **Authored** (source exists, runtime not proven), **Planned** (future work or design-only), **TBD** (needs an owner or spike decision).
 
@@ -43,6 +43,8 @@ These decisions are binding for implementation. Changing one requires editing th
 - **Application-level shortcuts only in v2.0.** Global Windows media keys are TBD (see section 10). The docs must not claim global media-key support unless implemented and verified.
 - **Queue is not persisted in v2.0.** Reason: prompt marks it optional; playback reliability comes first.
 - **Deleting a playlist never deletes audio.** Removing a track from a playlist removes only the association. Deleting a track from the library requires an explicit confirmation, and deleting the audio file is a separate, default-off checkbox in that confirmation.
+- **Distribution is a `jpackage` app-image, and external tools are never bundled.** `./gradlew.bat :app:packageWindows` builds `app/build/installer/CatoTube/` with the JDK 25 toolchain's `jpackage` (`--type app-image`, no WiX, no new Gradle plugin, icon at `assets/app-icon.ico`). The image carries the JVM and the app only. `yt-dlp`, `ffmpeg`, `ffprobe`, and `deno` stay external and are installed by the user. Reason: yt-dlp needs frequent updates to keep up with YouTube, so a bundled copy would go stale, and this keeps the `AGENTS.md` no-bundle rule. MSI and EXE installers are deferred until signing and WiX decisions exist (section 10).
+- **The startup dependency check runs on every launch, and its dialog appears only on problems.** `tools/ToolProbe.kt` runs `yt-dlp --version`, `ffmpeg -version`, `ffprobe -version`, and `deno --version` on a background thread with 10 s timeouts. When every tool is found, nothing is shown. When one is missing or fails to run, the setup dialog names each tool, shows its WinGet install command, and offers Re-check and Continue. The check never blocks startup and never prevents the app from opening. The CLI prints the same status before the URL prompt.
 - **Existing `downloads/` folder is not moved.** A one-time offer imports its MP3s into the chosen library. Reason: prompt section 17 forbids silent data moves.
 
 ## 2. Goals and non-goals
@@ -103,6 +105,8 @@ app/src/main/kotlin/
 │   ├── PlaybackQueue.kt        queue, shuffle, repeat; independent of playlists
 │   ├── PcmAnalyzer.kt          FFT band computation (off EDT)
 │   └── AudioVisualizer.kt      throttled band delivery to EDT
+├── tools/
+│   └── ToolProbe.kt            version probes for yt-dlp, ffmpeg, ffprobe, and deno
 └── ui/
     ├── MainWindow.kt           frame, tab bar, bottom player host
     ├── LibraryPanel.kt
@@ -111,7 +115,8 @@ app/src/main/kotlin/
     ├── DownloadsPanel.kt
     ├── PlayerBar.kt
     ├── QueuePanel.kt
-    └── SettingsDialog.kt
+    ├── SettingsDialog.kt
+    └── ToolSetup.kt            startup missing-tools dialog
 ```
 
 Ownership rules:
@@ -119,6 +124,7 @@ Ownership rules:
 - `App.kt` keeps `main`, the CLI, and window bootstrap. It must not grow drawing or library logic.
 - `library/` owns data and persistence. It has no Swing imports.
 - `download/` owns processes. Process lifetime is tied to job cancellation and app shutdown.
+- `tools/` owns the external tool probes (yt-dlp, ffmpeg, ffprobe, deno). It has no Swing imports and never starts a download.
 - `playback/` owns audio threads and FFmpeg processes. It has no Swing imports; it publishes state through callbacks that the UI marshals to the EDT.
 - `ui/` owns components and state display. It calls `library/`, `download/`, and `playback/` through their public APIs and never touches `library.json` directly.
 - `utils/` stays free of Swing. Pure helpers such as filename sanitizing and the FFT may live there if tested.
@@ -230,6 +236,8 @@ External tools (must remain optional-with-message, never a hard crash):
 | ffprobe | duration, metadata | `ffprobe -version` |
 | deno | yt-dlp JS challenge solver | `deno --version` |
 
+The startup check uses these probes and runs on every launch (section 1). A missing tool shows the setup dialog with its WinGet install command and never blocks startup.
+
 Build changes (Phase 0):
 
 ```kotlin
@@ -284,6 +292,9 @@ Thumbnail fetches: HTTPS only, host allowlist (`i.ytimg.com` and other `ytimg.co
 | Download cancel during extraction | No staging dir left, no library entry | Manual check, file listing |
 | Download cancel during conversion | No partial MP3 in `songs/`, no entry | Manual check, file listing |
 | Missing yt-dlp / ffmpeg / deno | Clear message naming the tool; app stays usable | Manual check with `PATH` override |
+| App image build | `:app:packageWindows` produces `build/installer/CatoTube/CatoTube.exe`; launching it opens the window with no console | Gradle output plus a launch check |
+| Missing tool at start | Setup dialog names each missing tool with its install command; the app stays usable | Manual check with a stripped `PATH` |
+| Tool probe timeout | A hanging probe reports "no response" and startup is not blocked | Automated test with a hanging command |
 | Playback of MP3, WAV, FLAC, Opus | Audible output, correct duration, seek works | Manual listening plus timed position log |
 | Corrupt audio file | Error message naming file, queue advances | Manual check with a truncated file |
 | Stop or switch track | FFmpeg process exits, line closed | `Get-Process ffmpeg` before and after |
@@ -408,6 +419,21 @@ Added beyond the original Phase 2 list: playlist names must be non-blank and uni
 - [ ] Verify: `./gradlew.bat :app:jar` produces `app\build\libs\app-all.jar`; `javaw -jar app\build\libs\app-all.jar` opens the window; the final report lists every verification from phases 0 to 5 with the evidence type used.
 - [ ] Do not commit or push unless explicitly requested.
 
+### Phase 7 — Packaging and onboarding
+
+Owner decisions are recorded in section 1. Planned.
+
+- [x] `tools/ToolProbe.kt`: version probes for yt-dlp, ffmpeg, ffprobe, and deno with 10 s timeouts, drained output, and Found, Missing, or Failed results. Evidence: `ToolProbeTest` 4/4 pass (found tool, missing command, nonzero exit, hanging command reported as "no response").
+- [x] `ui/ToolSetup.kt`: startup check on a background thread; the dialog appears only when a tool is missing, lists each tool with its status and WinGet install command, and offers Re-check and Continue. Evidence: screenshot of the app image launched with `PATH` set to System32 only; the dialog lists all four tools as not found, each with purpose, install command, and Copy button. Limit: Re-check and Copy were not clicked in automation. The all-found case was checked by screenshot with the WinGet Links folder on `PATH`: no dialog.
+- [ ] CLI: print the tool status before the URL prompt. Code is in `App.kt` (`printToolStatus`). Not verified: `System.console()` returns null when stdin is redirected, so the CLI branch could not be run non-interactively. Needs a run in a real terminal.
+- [x] `:app:packageWindows`: jpackage app-image from the JDK 25 toolchain into `app/build/installer/CatoTube/`, with `--enable-native-access=ALL-UNNAMED` for the native title bar and the icon from `assets/app-icon.ico` (generated once from `assets/app-icon-01.png`, multi-size PNG entries). Evidence: task BUILD SUCCESSFUL; output holds `CatoTube.exe`, `app/`, and `runtime/` (about 83 MB). Runtime modules from `jdeps`: java.base, java.desktop, java.instrument, java.prefs, jdk.unsupported. Limit: on two runs Windows held files in the output folder, so the task retries cleanup five times before failing (cause not identified).
+- [x] `README.md`: add `ffprobe` and `deno` to Requirements, document the app-image build, and add a troubleshooting note about `PATH` after a WinGet install. Evidence: README diff.
+- [x] `AGENTS.md`: add the `tools/` package, the `ui/` setup dialog, `ffprobe` in the PATH note, and the `packageWindows` command. Evidence: AGENTS.md diff.
+- [x] Verify: `./gradlew.bat :app:jar` and `./gradlew.bat test` succeed with no new warnings. Evidence: `:app:jar test --rerun-tasks` BUILD SUCCESSFUL; no `w:` compiler lines.
+- [x] Verify: `CatoTube.exe` from the app image opens the window with no console. Evidence: process stayed alive for 10 s on the final build. Earlier screenshots of the same dialog code show the window with its dark title bar. Limit: the last screenshot caught IntelliJ in front, so the final build was not re-inspected visually.
+- [ ] Verify: with the tools removed from `PATH`, the setup dialog names each missing tool and shows its install command, the app stays usable, and Re-check picks the tools up after they are restored. Not verified: Re-check after restoring a tool. A running app keeps the `PATH` it started with, so Re-check cannot see a tool installed while CatoTube is open; the dialog text says to reopen the app after a fresh install. Revisit whether Re-check should re-read the registry `PATH`.
+- [ ] Verify: the CLI prints the tool status and the install commands before the URL prompt. See the CLI item above.
+
 ## 10. Open tuning points
 
 - **Global media keys on Windows.** Owner: Phase 5 spike. Options: JNA with `RegisterHotKey` for Play/Pause, Next, Previous, Stop, or defer. Trigger: after Phase 4 is stable. Until then, document as not supported.
@@ -418,3 +444,4 @@ Added beyond the original Phase 2 list: playlist names must be non-blank and uni
 - **Theme option.** Only dark theme in v2.0 unless a light palette is requested. The Settings "Preferred theme" item stays deferred.
 - **MP3 quality setting.** Fixed to `--audio-quality 0` in v2.0 to preserve the tuned pipeline. Revisit only with the download owner's sign-off after testing.
 - **Optional ID3 artwork embedding.** Deferred until the core cover-art path is verified.
+- **Installer types and code signing.** The first release ships the app-image folder only. MSI and EXE (both need the WiX Toolset) and Authenticode signing are deferred; unsigned launchers show a SmartScreen warning. Owner: user. Trigger: when a distribution channel is chosen.

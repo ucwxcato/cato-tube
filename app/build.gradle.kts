@@ -41,3 +41,65 @@ tasks.jar {
         if (file.isDirectory) file else zipTree(file)
     })
 }
+
+// Copies the fat JAR into the directory jpackage reads from.
+val stageAppImage by tasks.registering(Sync::class) {
+    from(tasks.jar.flatMap { it.archiveFile })
+    into(layout.buildDirectory.dir("jpackage-input"))
+}
+
+// Builds build/installer/CatoTube/ with jpackage from the JDK 25 toolchain. External tools (yt-dlp,
+// ffmpeg, ffprobe, deno) are not bundled. The runtime module list comes from
+// `jdeps --print-module-deps app-all.jar`; rerun it when a new JDK module is imported.
+val packageWindows by tasks.registering(Exec::class) {
+    group = "distribution"
+    description = "Builds the CatoTube app image with jpackage into build/installer/CatoTube."
+    dependsOn(stageAppImage)
+
+    val isWindows = System.getProperty("os.name").startsWith("Windows")
+    val toolchainHome = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
+        .get().metadata.installationPath.asFile
+    val jpackage = toolchainHome.resolve(if (isWindows) "bin/jpackage.exe" else "bin/jpackage")
+    val inputDir = layout.buildDirectory.dir("jpackage-input").get().asFile
+    val destDir = layout.buildDirectory.dir("installer").get().asFile
+    val appImage = destDir.resolve("CatoTube")
+    val icon = rootProject.file("assets/app-icon.ico")
+    val iconArgs = if (icon.exists()) listOf("--icon", icon.absolutePath) else emptyList()
+
+    inputs.dir(inputDir)
+    inputs.files(listOf(icon)).optional()
+    outputs.dir(appImage)
+
+    doFirst {
+        // jpackage refuses to overwrite an existing app image. Windows can hold files briefly (scanners,
+        // a process still exiting), so retry before giving up.
+        if (appImage.exists()) {
+            repeat(5) {
+                if (appImage.deleteRecursively()) return@doFirst
+                Thread.sleep(1000)
+            }
+            throw GradleException("Could not remove $appImage. Close CatoTube and run the task again.")
+        }
+    }
+
+    commandLine(
+        *(
+            listOf(
+                jpackage.absolutePath,
+                "--type", "app-image",
+                "--name", "CatoTube",
+                "--app-version", "2.0.0",
+                "--vendor", "CatoTube",
+                "--description", "Saves YouTube audio to a local music library and plays it offline",
+                "--input", inputDir.absolutePath,
+                "--main-jar", "app-all.jar",
+                "--main-class", application.mainClass.get(),
+                "--dest", destDir.absolutePath,
+                "--java-options", "--enable-native-access=ALL-UNNAMED",
+                "--add-modules", "java.base,java.desktop,java.instrument,java.prefs,jdk.unsupported",
+                "--jlink-options", "--strip-native-commands --strip-debug --no-man-pages --no-header-files",
+            ) + iconArgs
+            ).toTypedArray()
+    )
+}
+
