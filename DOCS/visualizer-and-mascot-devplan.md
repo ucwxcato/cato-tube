@@ -238,7 +238,8 @@ Defaults and ranges live in one table in `VisualizerSettings.kt`. The UI and the
 |---|---|---|---|
 | `mode` | all | `CLASSIC` | six modes |
 | `primaryColor` | all | accent (`Palette.focus`) | RGB |
-| `secondaryColor` | Circular, Particles, Audio Ring | `#8FA3B8` (proposed) | RGB |
+| `secondaryColor` | all | `#8FA3B8` (proposed) | RGB |
+| `multicolor` | all | `false` | boolean; blends primary and secondary across each mode |
 | `followAccent` | all | `true` | boolean; when true, `primaryColor` tracks the accent |
 | `sensitivity` | all | `1.0` | 0.25 to 3.0 |
 | `amplitude` | all | `1.0` | 0.25 to 2.0 |
@@ -360,7 +361,7 @@ Phase numbers are local to this plan. Phase 0 is the design lock. Each phase mus
 
 - [x] `visual/VisualizerRenderer.kt`: the interface from section 4, including an `update` method for timer-driven easing. Renderers have no timers.
 - [x] `visual/ClassicBars.kt`: bar drawing moved out of `Backdrop.paintBars` with the same colors, halo layers, geometry, and easing constants.
-- [x] Minimal `VisualizerMode` and `VisualizerSettings` contracts added so the renderer interface is typed; Phase 3 will add persisted settings.
+- [x] Minimal `VisualizerMode` and `VisualizerSettings` contracts added so the renderer interface is typed; Phase 3 expanded them with persisted settings.
 - [x] `Backdrop` keeps the glows and the window fill, delegates bars to the active renderer, and attaches to `AudioFeatures`. It keeps one `Timer`.
 - [x] Backdrop ticker checks visibility, detaches analysis while hidden or minimized, avoids repainting while not showing, and applies the focused/unfocused frame policy in section 6.
 - [x] `:app:jar` and `test` pass.
@@ -380,12 +381,12 @@ Phase numbers are local to this plan. Phase 0 is the design lock. Each phase mus
 
 ### Phase 4 — Visualizer page with Classic Bars only
 
-- [ ] `ui/VisualizerPage.kt` added to `MainWindow.kt`'s `names` and `contents` lists as "Visualizer".
-- [ ] Live preview panel with its own single `Timer`. It attaches to `AudioFeatures` only while the page is showing. It uses `SimulatedFeatures` when stopped and the simulated toggle is on.
-- [ ] Mode selector (names only in this phase; thumbnails are Phase 6 work if the owner keeps them, see 11.5).
-- [ ] `ThemedSlider` added to `Theme.kt` (the existing code has no slider) and used for numeric controls. Controls are grouped Colors, Motion, Response, and Background.
-- [ ] Reset (one setting and all), Restore previous, and Randomize (bounded ranges from section 6).
-- [ ] Every change updates the preview on the next frame and updates the Backdrop.
+- [x] `ui/VisualizerPage.kt` added to `MainWindow.kt`'s `names` and `contents` lists as "Visualizer".
+- [x] Live preview panel with its own single `Timer`. It attaches to `AudioFeatures` only while the page is showing. It uses `SimulatedFeatures` when stopped and the simulated toggle is on.
+- [x] Mode selector (names only in this phase; thumbnails are Phase 6 work if the owner keeps them, see 11.5). Unimplemented modes show a phase message and keep their controls hidden.
+- [x] `ThemedSlider` added to `Theme.kt` and used for numeric controls. Controls are grouped Colors, Motion, Response, and Background.
+- [x] Reset (one setting and all), Restore previous, and Randomize (bounded ranges from section 6).
+- [x] Every change updates the preview on the next frame and updates the `Backdrop` through the shared `VisualizerStore`.
 - [ ] **Verify:** each Classic Bars control changes the preview visibly; controls for other modes are hidden.
 - [ ] **Verify:** at 900 × 600 the page has no overlap (screenshot), and text is readable.
 
@@ -403,11 +404,12 @@ Phase numbers are local to this plan. Phase 0 is the design lock. Each phase mus
 
 Each mode is a separate item. A mode is done only when its verify items pass.
 
-- [ ] **6a Circular Spectrum:** bands arranged on a circle, radius from `min(width, height)`, precomputed sin and cos table per bar count.
-- [ ] **6b Waveform:** `WaveformBuffer` samples drawn as a smoothed polyline (3-point moving average, proposed). Flat line when inactive.
-- [ ] **6c Particle Visualizer:** fixed pool (maximum 400, from section 6), preallocated particle objects, spawn on beat and bass, count and size controls, cleared on `reset()`.
-- [ ] **6d Audio Ring:** ring radius from energy, deformed by 32 band values, glow from layered strokes.
-- [ ] **6e Minimal:** baseline line and one energy dot. Lowest-cost mode.
+- [x] **6a Circular Spectrum:** bands arranged on a circle, radius from `min(width, height)`, precomputed angle table per bar count.
+- [x] **6b Waveform:** `WaveformBuffer` samples drawn as a smoothed polyline (3-point moving average). Eases to a flat line when inactive.
+- [x] **6c Particle Visualizer:** fixed pool (maximum 400), preallocated particle state, spawn on beat and bass, count and size controls, cleared on `reset()`.
+- [x] **6d Audio Ring:** ring radius from energy, deformed by 32 band values, glow from layered strokes.
+- [x] **6e Minimal:** baseline line and one energy dot. Lowest-cost mode.
+- [x] All six modes support optional blending between primary and secondary colors. The option defaults off to preserve the original Classic Bars appearance.
 - [ ] **Verify (each mode):** visible response to a real track; holds or decays on pause; shows only its relevant controls.
 - [ ] **Verify:** `jcmd <pid> Thread.print` before and after 10 mode switches shows no new threads; JFR allocation sampling during 60 s of steady playback shows no per-frame allocation in the renderers.
 - [ ] **Verify:** low-end settings (30 fps, 40 particles, bar count 16) run with CPU recorded in section 11.

@@ -2,9 +2,9 @@ package org.catosaur.app
 
 import org.catosaur.app.playback.AudioFeatures
 import org.catosaur.app.playback.PlaybackController
-import org.catosaur.app.visual.ClassicBars
 import org.catosaur.app.visual.VisualizerRenderer
 import org.catosaur.app.visual.VisualizerSettings
+import org.catosaur.app.visual.rendererFor
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.BorderLayout
@@ -26,6 +26,8 @@ import java.awt.RenderingHints
 import java.awt.Shape
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.Arc2D
@@ -521,6 +523,108 @@ internal class ProgressSlider : JComponent() {
     }
 }
 
+/** Numeric control for the Visualizer page. It supports mouse dragging and arrow-key nudging. */
+internal class ThemedSlider(
+    private val minimum: Float,
+    private val maximum: Float,
+    initial: Float,
+    private val step: Float = 0f,
+) : JComponent() {
+    var value: Float = initial.coerceIn(minimum, maximum)
+        set(next) {
+            field = next.coerceIn(minimum, maximum)
+            repaint()
+        }
+
+    var onChange: ((Float, Boolean) -> Unit)? = null
+
+    private var dragging = false
+
+    init {
+        isOpaque = false
+        isFocusable = true
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        preferredSize = Dimension(170, 26)
+        minimumSize = Dimension(110, 26)
+        maximumSize = Dimension(Int.MAX_VALUE, 26)
+        addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                if (!isEnabled || e.button != MouseEvent.BUTTON1) return
+                requestFocusInWindow()
+                dragging = true
+                setFromX(e.x, released = false)
+            }
+
+            override fun mouseReleased(e: MouseEvent) {
+                if (!dragging) return
+                dragging = false
+                setFromX(e.x, released = true)
+            }
+        })
+        addMouseMotionListener(object : MouseAdapter() {
+            override fun mouseDragged(e: MouseEvent) {
+                if (dragging) setFromX(e.x, released = false)
+            }
+        })
+        addKeyListener(object : KeyAdapter() {
+            override fun keyPressed(e: KeyEvent) {
+                val delta = when (e.keyCode) {
+                    KeyEvent.VK_LEFT, KeyEvent.VK_DOWN -> -keyStep()
+                    KeyEvent.VK_RIGHT, KeyEvent.VK_UP -> keyStep()
+                    else -> return
+                }
+                change(value + delta, released = true)
+                e.consume()
+            }
+        })
+    }
+
+    private fun setFromX(x: Int, released: Boolean) {
+        val usable = (width - KNOB_RADIUS * 2).coerceAtLeast(1)
+        val fraction = ((x - KNOB_RADIUS).toFloat() / usable).coerceIn(0f, 1f)
+        change(minimum + (maximum - minimum) * fraction, released)
+    }
+
+    private fun keyStep(): Float = if (step > 0f) step else (maximum - minimum) / 100f
+
+    private fun change(next: Float, released: Boolean) {
+        val adjusted = if (step > 0f) {
+            val count = ((next - minimum) / step).toDouble().roundToInt()
+            minimum + count * step
+        } else {
+            next
+        }
+        value = adjusted
+        onChange?.invoke(value, released)
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.smoothCopy()
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, if (isEnabled) 1f else 0.35f)
+        val left = KNOB_RADIUS.toFloat()
+        val usable = (width - KNOB_RADIUS * 2).coerceAtLeast(1).toFloat()
+        val cy = height / 2f
+        val trackHeight = 4f
+        val fraction = ((value - minimum) / (maximum - minimum).coerceAtLeast(0.0001f)).coerceIn(0f, 1f)
+        g2.color = Palette.field
+        g2.fill(RoundRectangle2D.Float(left, cy - trackHeight / 2f, usable, trackHeight, trackHeight, trackHeight))
+        g2.color = Palette.accent
+        g2.fill(RoundRectangle2D.Float(left, cy - trackHeight / 2f, usable * fraction, trackHeight, trackHeight, trackHeight))
+        if (hasFocus()) {
+            g2.color = withAlpha(Palette.focus, 0.30f)
+            g2.stroke = BasicStroke(2f)
+            g2.draw(RoundRectangle2D.Float(0.5f, cy - 8f, width - 1f, 16f, 8f, 8f))
+        }
+        g2.color = Palette.text
+        g2.fill(Ellipse2D.Float(left + usable * fraction - KNOB_RADIUS, cy - KNOB_RADIUS, KNOB_RADIUS * 2f, KNOB_RADIUS * 2f))
+        g2.dispose()
+    }
+
+    private companion object {
+        const val KNOB_RADIUS = 5
+    }
+}
+
 internal fun sectionLabel(text: String): JLabel = JLabel(text.uppercase()).apply {
     font = Fonts.ui(11, Font.BOLD)
     foreground = Palette.muted
@@ -582,12 +686,13 @@ internal class SectionHeading(initial: String) : JComponent() {
  */
 internal class Backdrop(
     private val playback: PlaybackController? = null,
+    private val settingsProvider: () -> VisualizerSettings = { VisualizerSettings.defaults },
 ) : JPanel(BorderLayout()) {
-    private val renderer: VisualizerRenderer = ClassicBars()
-    private val settings = VisualizerSettings()
+    private var renderer: VisualizerRenderer = rendererFor(settingsProvider().mode)
     private val inactiveFeatures = AudioFeatures()
     private val ticker = Timer(BARS_FOCUSED_FRAME_MS) { tickRenderer() }
     private var featuresAttached = false
+    private var lastMode = settingsProvider().mode
 
     init {
         isOpaque = true
@@ -614,6 +719,16 @@ internal class Backdrop(
         }
 
         ticker.delay = if (window?.isFocused == true) BARS_FOCUSED_FRAME_MS else BARS_UNFOCUSED_FRAME_MS
+        val settings = settingsProvider()
+        if (settings.mode != lastMode) {
+            renderer = rendererFor(settings.mode)
+            lastMode = settings.mode
+        }
+        if (!settings.enabled) {
+            detachFeatures()
+            if (renderer.update(inactiveFeatures, settings)) repaint()
+            return
+        }
         if (playback != null && !featuresAttached) {
             playback.attachFeatures()
             featuresAttached = true
@@ -634,7 +749,8 @@ internal class Backdrop(
         val w = width.toFloat()
         val h = height.toFloat()
         val reach = max(w, h) * 0.7f
-        g2.color = Palette.base
+        val settings = settingsProvider()
+        g2.color = withAlpha(Palette.base, settings.backgroundAlpha)
         g2.fillRect(0, 0, width, height)
         g2.paint = RadialGradientPaint(
             Point2D.Float(w * 0.08f, h * 0.0f),
@@ -1150,10 +1266,12 @@ private class ThemedCellRenderer : DefaultListCellRenderer() {
         font = Fonts.ui(13)
         border = BorderFactory.createEmptyBorder(7, 12, 7, 12)
         isOpaque = inPopup
-        background = if (isSelected) mix(Palette.surface, Palette.accent, 0.55f) else Palette.surface
+        background = if (isSelected) popupSelectionColor() else Palette.surfaceRaised
         foreground = if (isSelected) Color.WHITE else Palette.text
         return this
     }
+
+    private fun popupSelectionColor(): Color = mix(Palette.surfaceHigh, Palette.focus, 0.55f)
 }
 
 private class ThemedComboUI : BasicComboBoxUI() {
@@ -1214,9 +1332,13 @@ private class ThemedComboUI : BasicComboBoxUI() {
 
     override fun createPopup(): ComboPopup = object : BasicComboPopup(comboBox) {
         init {
-            background = Palette.surface
+            background = Palette.surfaceRaised
             border = BorderFactory.createLineBorder(Palette.stroke)
-            list.background = Palette.surface
+            list.background = Palette.surfaceRaised
+            list.foreground = Palette.text
+            list.selectionBackground = mix(Palette.surfaceHigh, Palette.focus, 0.55f)
+            list.selectionForeground = Color.WHITE
+            list.cellRenderer = ThemedCellRenderer()
         }
     }
 }

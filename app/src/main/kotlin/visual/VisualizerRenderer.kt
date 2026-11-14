@@ -13,3 +13,12 @@ internal interface VisualizerRenderer {
 
     fun reset()
 }
+
+internal fun rendererFor(mode: VisualizerMode): VisualizerRenderer = when (mode) {
+    VisualizerMode.CLASSIC -> ClassicBars()
+    VisualizerMode.CIRCULAR -> CircularSpectrum()
+    VisualizerMode.WAVEFORM -> WaveformRenderer()
+    VisualizerMode.PARTICLES -> ParticleField()
+    VisualizerMode.AUDIO_RING -> AudioRing()
+    VisualizerMode.MINIMAL -> MinimalRenderer()
+}

@@ -3,19 +3,23 @@ package org.catosaur.app.visual
 import kotlinx.serialization.Serializable
 import org.catosaur.app.Palette
 import java.awt.Color
+import org.catosaur.app.mix
 
 internal const val VISUALIZER_SCHEMA_VERSION = 1
 internal const val DEFAULT_PRIMARY_COLOR_RGB = 0xC49874
 internal const val DEFAULT_SECONDARY_COLOR_RGB = 0x8FA3B8
 
 /** Modes available to the renderer contract; each mode gets its implementation in a later phase. */
-internal enum class VisualizerMode {
-    CLASSIC,
-    CIRCULAR,
-    WAVEFORM,
-    PARTICLES,
-    AUDIO_RING,
-    MINIMAL,
+internal enum class VisualizerMode(private val label: String) {
+    CLASSIC("Classic Bars"),
+    CIRCULAR("Circular Spectrum"),
+    WAVEFORM("Waveform"),
+    PARTICLES("Particle Field"),
+    AUDIO_RING("Audio Ring"),
+    MINIMAL("Minimal"),
+    ;
+
+    override fun toString(): String = label
 }
 
 /** Settings that are persisted for the visualizer and shared by the preview and the Backdrop. */
@@ -24,6 +28,7 @@ internal data class VisualizerSettings(
     val mode: VisualizerMode = VisualizerMode.CLASSIC,
     val primaryColor: Int = DEFAULT_PRIMARY_COLOR_RGB,
     val secondaryColor: Int = DEFAULT_SECONDARY_COLOR_RGB,
+    val multicolor: Boolean = false,
     val followAccent: Boolean = true,
     val sensitivity: Float = 1.0f,
     val amplitude: Float = 1.0f,
@@ -67,6 +72,9 @@ internal data class VisualizerSettings(
 
     internal fun resolvedSecondaryColor(): Color = Color(secondaryColor and RGB_MAX)
 
+    internal fun colorAt(position: Float): Color =
+        if (multicolor) mix(resolvedPrimaryColor(), resolvedSecondaryColor(), position) else resolvedPrimaryColor()
+
     internal companion object {
         val defaults: VisualizerSettings get() = VisualizerSettings()
 
@@ -78,6 +86,7 @@ internal enum class VisualizerSettingField {
     MODE,
     PRIMARY_COLOR,
     SECONDARY_COLOR,
+    MULTICOLOR,
     FOLLOW_ACCENT,
     SENSITIVITY,
     AMPLITUDE,
@@ -99,6 +108,8 @@ internal fun relevantVisualizerFields(mode: VisualizerMode): Set<VisualizerSetti
     VisualizerMode.CLASSIC -> setOf(
         VisualizerSettingField.MODE,
         VisualizerSettingField.PRIMARY_COLOR,
+        VisualizerSettingField.SECONDARY_COLOR,
+        VisualizerSettingField.MULTICOLOR,
         VisualizerSettingField.FOLLOW_ACCENT,
         VisualizerSettingField.SENSITIVITY,
         VisualizerSettingField.AMPLITUDE,
@@ -120,6 +131,8 @@ internal fun relevantVisualizerFields(mode: VisualizerMode): Set<VisualizerSetti
     VisualizerMode.WAVEFORM -> setOf(
         VisualizerSettingField.MODE,
         VisualizerSettingField.PRIMARY_COLOR,
+        VisualizerSettingField.SECONDARY_COLOR,
+        VisualizerSettingField.MULTICOLOR,
         VisualizerSettingField.FOLLOW_ACCENT,
         VisualizerSettingField.SENSITIVITY,
         VisualizerSettingField.AMPLITUDE,
@@ -136,6 +149,7 @@ internal fun relevantVisualizerFields(mode: VisualizerMode): Set<VisualizerSetti
         VisualizerSettingField.MODE,
         VisualizerSettingField.PRIMARY_COLOR,
         VisualizerSettingField.SECONDARY_COLOR,
+        VisualizerSettingField.MULTICOLOR,
         VisualizerSettingField.FOLLOW_ACCENT,
         VisualizerSettingField.SENSITIVITY,
         VisualizerSettingField.AMPLITUDE,
@@ -154,6 +168,7 @@ internal fun relevantVisualizerFields(mode: VisualizerMode): Set<VisualizerSetti
         VisualizerSettingField.MODE,
         VisualizerSettingField.PRIMARY_COLOR,
         VisualizerSettingField.SECONDARY_COLOR,
+        VisualizerSettingField.MULTICOLOR,
         VisualizerSettingField.FOLLOW_ACCENT,
         VisualizerSettingField.SENSITIVITY,
         VisualizerSettingField.AMPLITUDE,
@@ -169,6 +184,8 @@ internal fun relevantVisualizerFields(mode: VisualizerMode): Set<VisualizerSetti
     VisualizerMode.MINIMAL -> setOf(
         VisualizerSettingField.MODE,
         VisualizerSettingField.PRIMARY_COLOR,
+        VisualizerSettingField.SECONDARY_COLOR,
+        VisualizerSettingField.MULTICOLOR,
         VisualizerSettingField.FOLLOW_ACCENT,
         VisualizerSettingField.SENSITIVITY,
         VisualizerSettingField.AMPLITUDE,

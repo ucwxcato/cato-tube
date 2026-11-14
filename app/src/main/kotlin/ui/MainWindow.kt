@@ -11,6 +11,7 @@ import org.catosaur.app.SectionHeading
 import org.catosaur.app.download.DownloadManager
 import org.catosaur.app.playback.PlaybackController
 import org.catosaur.app.library.MusicLibrary
+import org.catosaur.app.visual.VisualizerStore
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Font
@@ -33,6 +34,8 @@ internal fun showMainWindow() {
     }
     var currentLibrary: MusicLibrary? = null
     val playback = PlaybackController { track -> currentLibrary?.root?.resolve(track.relativePath) }
+    val visualizerStore = VisualizerStore()
+    val visualizerPage = VisualizerPage(visualizerStore, playback) { frame.repaint() }
     val playlists = PlaylistsPanel(
         frame,
         onPlay = playback::playTracks,
@@ -64,13 +67,14 @@ internal fun showMainWindow() {
     }
     val queue = QueuePanel(frame, playback)
     val nav = SideNav(
-        names = listOf("Home", "Discover", "Playlists", "Queue", "Downloads"),
+        names = listOf("Home", "Discover", "Playlists", "Queue", "Downloads", "Visualizer"),
         contents = listOf(
             library,
             discover,
             playlists,
             queue,
             buildDownloadsPanel(frame),
+            visualizerPage,
         ),
     )
     playback.addQueueListener { now, upcoming ->
@@ -126,7 +130,7 @@ internal fun showMainWindow() {
         minimumSize = Dimension(900, 600)
         setSize(1100, 750)
         setLocationRelativeTo(null)
-        contentPane = Backdrop(playback).apply {
+        contentPane = Backdrop(playback) { visualizerStore.settings }.apply {
             border = BorderFactory.createEmptyBorder(16, 16, 16, 16)
             add(
                 JPanel(BorderLayout(16, 0)).apply {
@@ -140,6 +144,7 @@ internal fun showMainWindow() {
         }
         addWindowListener(object : WindowAdapter() {
             override fun windowClosing(e: WindowEvent) {
+                visualizerStore.close()
                 playback.close()
                 library.shutdown()
                 discover.shutdown()
