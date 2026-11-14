@@ -9,7 +9,7 @@ CatoTube is a Kotlin/JVM app that saves the best available audio from a single Y
 - **Swing window**: opens when `System.console()` is null (for example, double-clicking the JAR).
 - **CLI**: runs when a console is attached.
 
-Downloads run through external `yt-dlp` and FFmpeg processes, and `ffprobe` reads durations. deno runs inside yt-dlp. The app does not bundle any of these tools.
+Downloads and playback run through external `yt-dlp`, `ffmpeg`, `ffprobe`, and `deno` processes. `deno` is the JS challenge solver that yt-dlp calls, and `ffprobe` reads durations. The app does not bundle any of these tools.
 
 Use only for audio the user owns or is authorized to use. Do not add features that bypass YouTube access controls.
 

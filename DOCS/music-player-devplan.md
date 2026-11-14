@@ -291,7 +291,7 @@ Thumbnail fetches: HTTPS only, host allowlist (`i.ytimg.com` and other `ytimg.co
 | Download success | MP3 valid (ffprobe), registered once, in chosen playlists | Real authorized clip, ffprobe output |
 | Download cancel during extraction | No staging dir left, no library entry | Manual check, file listing |
 | Download cancel during conversion | No partial MP3 in `songs/`, no entry | Manual check, file listing |
-| Missing yt-dlp / ffmpeg / deno | Clear message naming the tool; app stays usable | Manual check with `PATH` override |
+| Missing yt-dlp / ffmpeg / ffprobe / deno | Clear message naming the tool; app stays usable | Manual check with `PATH` override |
 | App image build | `:app:packageWindows` produces `build/installer/CatoTube/CatoTube.exe`; launching it opens the window with no console | Gradle output plus a launch check |
 | Missing tool at start | Setup dialog names each missing tool with its install command; the app stays usable | Manual check with a stripped `PATH` |
 | Tool probe timeout | A hanging probe reports "no response" and startup is not blocked | Automated test with a hanging command |
@@ -371,7 +371,7 @@ Added beyond the original Phase 2 list: playlist names must be non-blank and uni
 - [ ] On failure or cancel: delete the job's staging directory and create no library entry.
 - [ ] Active-job guard prevents two jobs writing the same target.
 - [ ] Downloads tab: URL input and Download button (existing flow preserved), queue list with per-item state and percentage, current operation text, Cancel current, Clear completed, Open file location, expandable verbose log.
-- [ ] Missing yt-dlp, ffmpeg, or deno produces a specific message naming the tool; the app stays usable.
+- [ ] Missing yt-dlp, ffmpeg, ffprobe, or deno produces a specific message naming the tool; the app stays usable.
 - [ ] Verify non-cp1252 filenames end to end (download, register, play, Open File Location). If Java argument encoding breaks them, sanitize final names to a safe character set (Phase 0 finding).
 - [ ] Verify: real download of a short authorized clip produces a valid MP3 (ffprobe output), registered once, in the chosen playlist.
 - [ ] Verify: cancel during extraction and cancel during conversion each leave no staging directory, no partial MP3 in `songs/`, and no library entry.
