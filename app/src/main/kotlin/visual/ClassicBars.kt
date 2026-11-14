@@ -1,6 +1,5 @@
 package org.catosaur.app.visual
 
-import org.catosaur.app.Palette
 import org.catosaur.app.playback.AudioFeatures
 import org.catosaur.app.playback.SPECTRUM_BANDS
 import org.catosaur.app.withAlpha
@@ -37,6 +36,7 @@ internal class ClassicBars : VisualizerRenderer {
 
         val w = width.toFloat()
         val h = height.toFloat()
+        val primary = settings.resolvedPrimaryColor()
         val slot = w / SPECTRUM_BANDS
         val barWidth = slot * 0.5f
         val maxHeight = h * 0.5f
@@ -46,11 +46,11 @@ internal class ClassicBars : VisualizerRenderer {
             val barHeight = maxHeight * level
             val x = slot * band + (slot - barWidth) / 2f
             val y = h - barHeight
-            g.color = withAlpha(Palette.focus, 0.02f + 0.04f * level)
+            g.color = withAlpha(primary, 0.02f + 0.04f * level)
             g.fill(RoundRectangle2D.Float(x - 12f, y - 12f, barWidth + 24f, barHeight + 12f, 22f, 22f))
-            g.color = withAlpha(Palette.focus, 0.04f + 0.07f * level)
+            g.color = withAlpha(primary, 0.04f + 0.07f * level)
             g.fill(RoundRectangle2D.Float(x - 5f, y - 5f, barWidth + 10f, barHeight + 5f, 12f, 12f))
-            g.color = withAlpha(Palette.focus, 0.08f + 0.14f * level)
+            g.color = withAlpha(primary, 0.08f + 0.14f * level)
             g.fill(RoundRectangle2D.Float(x, y, barWidth, barHeight, 6f, 6f))
         }
     }

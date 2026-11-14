@@ -369,14 +369,14 @@ Phase numbers are local to this plan. Phase 0 is the design lock. Each phase mus
 
 ### Phase 3 — Settings model and persistence
 
-- [ ] `visual/VisualizerSettings.kt`: data class with `schemaVersion = 1`, all fields from section 6, and one table of defaults and ranges.
-- [ ] Per-mode relevance function. Test asserts, for example, that Waveform has no bar-count control.
-- [ ] `visual/VisualizerStore.kt`: load from `visualizer.settings`, clamp values, fall back to defaults, keep corrupt values in memory only with a status line, and treat a newer schema as read-only.
-- [ ] Debounced write (300 ms, non-repeating EDT `Timer`) and a flush on window close.
-- [ ] Previous-configuration slot: `visualizer.previous` is updated before the first change of an edit session. Restore swaps current and previous.
-- [ ] `visualizerEnabled` read and write, shared with the music plan.
-- [ ] Follow-accent: when `followAccent` is true, the primary color is read from `Palette.focus` at paint time, so accent changes apply without a settings write.
-- [ ] **Verify:** automated tests for round trip, clamping, unknown-field handling, newer schema read-only, and corrupt JSON. Manual close and reopen keeps every setting.
+- [x] `visual/VisualizerSettings.kt`: data class with `schemaVersion = 1`, all fields from section 6, and one table of defaults and ranges.
+- [x] Per-mode relevance function. Tests assert that Waveform has no bar-count or particle-count control.
+- [x] `visual/VisualizerStore.kt`: load from `visualizer.settings`, clamp values, fall back to defaults, keep corrupt values in memory only with a status callback, and treat a newer schema as read-only.
+- [x] Debounced write (300 ms, non-repeating EDT `Timer`) and a flush on close through `AutoCloseable.close()`.
+- [x] Previous-configuration slot: `visualizer.previous` is updated before the first change of an edit session. Restore swaps current and previous.
+- [x] `visualizerEnabled` read and write, shared with the music plan.
+- [x] Follow-accent: when `followAccent` is true, the primary color is read from `Palette.focus` at paint time, so accent changes apply without a settings write.
+- [x] **Verify:** automated tests cover round trip, clamping, unknown-field handling, newer schema read-only, corrupt JSON, enabled preference handling, previous-slot swapping, and accent resolution. Reopening a store reads the saved current and previous settings.
 
 ### Phase 4 — Visualizer page with Classic Bars only
 
