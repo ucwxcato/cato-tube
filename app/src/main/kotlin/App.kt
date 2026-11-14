@@ -1,8 +1,9 @@
 package org.catosaur.app
 
+import org.catosaur.app.download.ytDlpDownloadCommand
+
 import java.net.URI
 import java.nio.file.Path
-import java.nio.file.Files
 import javax.swing.*
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -11,7 +12,6 @@ import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.GridLayout
 import java.awt.Insets
-import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
@@ -42,7 +42,7 @@ private fun runCli() {
     }
 
     try {
-        val process = startDownload(url).inheritIO().start()
+        val process = ytDlpDownloadCommand(outputDirectory, url).inheritIO().start()
         val exitCode = process.waitFor()
         if (exitCode == 0) {
             println("\nFinished. MP3 saved in: $outputDirectory")
@@ -75,8 +75,8 @@ private fun showWindow() {
         setLocationRelativeTo(null)
     }
 
-    val urlField = GlowField()
-    val folderField = GlowField(outputDirectory.toString()).apply {
+    val urlField = ThemedField()
+    val folderField = ThemedField(outputDirectory.toString()).apply {
         isEditable = false
         foreground = Palette.muted
     }
@@ -94,13 +94,13 @@ private fun showWindow() {
         border = BorderFactory.createEmptyBorder()
         verticalScrollBar.setUI(SlimScrollBarUI())
     }
-    val downloadButton = PillButton("Download MP3", primary = true)
-    val folderButton = PillButton("Browse")
-    val progress = GlowProgressBar().apply { string = "Ready" }
+    val downloadButton = FlatButton("Download MP3", primary = true)
+    val folderButton = FlatButton("Browse")
+    val progress = ThemedProgressBar().apply { string = "Ready" }
     val activeProcess = AtomicReference<Process?>(null)
-    val cancelButton = PillButton("Cancel", hoverTint = Palette.danger).apply { isEnabled = false }
+    val cancelButton = FlatButton("Cancel", hoverTint = Palette.danger).apply { isEnabled = false }
 
-    val inputCard = Card(GridBagLayout(), arc = 32f).apply {
+    val inputCard = Card(GridBagLayout()).apply {
         border = BorderFactory.createEmptyBorder(18, 20, 18, 20)
         val c = GridBagConstraints().apply {
             gridx = 0
@@ -207,7 +207,7 @@ private fun showWindow() {
         log.append("\nStarting download...\n")
         Thread {
             try {
-                val process = startDownload(url).redirectErrorStream(true).start()
+                val process = ytDlpDownloadCommand(outputDirectory, url).redirectErrorStream(true).start()
                 activeProcess.set(process)
                 val lastOutputAt = AtomicLong(System.nanoTime())
                 val timedOut = AtomicBoolean(false)
@@ -303,32 +303,12 @@ private fun showWindow() {
         }.apply { isDaemon = true; start() }
     }
     frame.isVisible = true
+    NativeTitleBar.apply(frame.title, Palette.surface, Palette.text)
 }
 
 private fun sectionLabel(text: String): JLabel = JLabel(text.uppercase()).apply {
     font = Fonts.ui(11, Font.BOLD)
     foreground = Palette.muted
-}
-
-private fun startDownload(url: String): ProcessBuilder {
-    Files.createDirectories(outputDirectory)
-    return ProcessBuilder(
-    "yt-dlp",
-    "--no-playlist",
-    "--extract-audio",
-    "--format", "bestaudio/best",
-    "--audio-format", "mp3",
-    "--audio-quality", "0",
-    "--newline",
-    "--verbose",
-    "--socket-timeout", "15",
-    "--retries", "1",
-    "--extractor-retries", "1",
-    "--extractor-args", "youtube:player_client=tv_samsung",
-    "--force-ipv4",
-    "--output", outputDirectory.resolve("%(title)s.%(ext)s").toString(),
-        url,
-    ).directory(File(".").absoluteFile)
 }
 
 private fun isYouTubeUrl(value: String): Boolean = try {
