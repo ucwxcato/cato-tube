@@ -85,4 +85,4 @@ Only download audio you own or have permission to use. Check YouTube's terms bef
 CatoTube is open source. Read the code, report issues, or build your own version:
 
 - Source: https://github.com/ucwxcato/cato-tube
-- License: MIT
+- License: [MIT](LICENSE)
