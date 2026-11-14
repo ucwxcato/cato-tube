@@ -25,6 +25,8 @@ internal interface PlaybackListener {
 }
 
 private const val SAMPLE_RATE = 44100f
+private const val SAMPLE_RATE_HZ = 44100L
+private const val NANOS_PER_SECOND = 1_000_000_000L
 private const val CHUNK_BYTES = 4096
 private const val LINE_BUFFER_BYTES = 44100
 private const val POSITION_INTERVAL_MS = 100L
@@ -44,6 +46,12 @@ internal class AudioPlayer(private val listener: PlaybackListener) {
     @Volatile private var muted = false
     @Volatile private var peak = 0f
     private val analyzer = SpectrumAnalyzer()
+    private val analysisBands = arrayOf(FloatArray(SPECTRUM_BANDS), FloatArray(SPECTRUM_BANDS))
+    private var analysisBufferIndex = 0
+    private val featureFeed = AudioFeaturesFeed()
+    private val waveformBuffer = WaveformBuffer()
+    private val beatDetector = BeatDetector()
+    private var analysisTimeNanos = 0L
     @Volatile private var bands = FloatArray(SPECTRUM_BANDS)
 
     private sealed interface Command {
@@ -126,8 +134,18 @@ internal class AudioPlayer(private val listener: PlaybackListener) {
             }
             current.sawAudio = true
             applyGain(buffer, read)
-            measure(buffer, read)
-            bands = analyzer.analyze(buffer, read)
+            val energy = measure(buffer, read)
+            val analyzedBands = analysisBands[analysisBufferIndex]
+            analyzer.analyze(buffer, read, analyzedBands)
+            bands = analyzedBands
+            analysisBufferIndex = 1 - analysisBufferIndex
+            if (featureFeed.hasConsumers) {
+                waveformBuffer.write(buffer, read)
+                val bass = meanBandEnergy(analyzedBands, BASS_FIRST_BAND, BASS_LAST_BAND)
+                analysisTimeNanos += (read / 4 * NANOS_PER_SECOND) / SAMPLE_RATE_HZ
+                val beat = beatDetector.process(bass, analysisTimeNanos / 1_000_000L)
+                featureFeed.publish(analyzedBands, energy, waveformBuffer, beat)
+            }
             current.line.write(buffer, 0, read)
             reportPosition(current)
         }
@@ -142,6 +160,8 @@ internal class AudioPlayer(private val listener: PlaybackListener) {
                 if (!paused) {
                     paused = true
                     current.line.stop()
+                    featureFeed.pause()
+                    beatDetector.reset()
                     listener.onPlayingChanged(false)
                 }
             }
@@ -201,10 +221,11 @@ internal class AudioPlayer(private val listener: PlaybackListener) {
 
     /** Ends the current session, if any, without notifying listeners. */
     private fun endSession() {
-        val current = session ?: return
+        val current = session
         session = null
         paused = false
-        bands = FloatArray(SPECTRUM_BANDS)
+        clearAnalysis()
+        if (current == null) return
         current.process.destroyForcibly()
         runCatching { current.process.waitFor(2, TimeUnit.SECONDS) }
         current.line.stop()
@@ -220,7 +241,7 @@ internal class AudioPlayer(private val listener: PlaybackListener) {
         }
         session = null
         paused = false
-        bands = FloatArray(SPECTRUM_BANDS)
+        clearAnalysis()
         current.line.drain()
         current.line.stop()
         current.line.close()
@@ -245,10 +266,24 @@ internal class AudioPlayer(private val listener: PlaybackListener) {
     }
 
     /** Band levels (0 to 1) of the most recent block, after volume and mute. Zeros when idle. */
-    fun spectrum(): FloatArray = bands
+    fun spectrum(): FloatArray = bands.copyOf()
+
+    fun attachFeatures(): AudioFeatures = featureFeed.attach()
+
+    fun detachFeatures() = featureFeed.detach()
+
+    fun audioFeatures(): AudioFeatures = featureFeed.snapshot()
+
+    private fun clearAnalysis() {
+        bands = FloatArray(SPECTRUM_BANDS)
+        waveformBuffer.clear()
+        beatDetector.reset()
+        analysisTimeNanos = 0L
+        featureFeed.clear()
+    }
 
     /** Keeps the loudest RMS of the blocks written since the last [takeLevel]. */
-    private fun measure(buffer: ByteArray, count: Int) {
+    private fun measure(buffer: ByteArray, count: Int): Float {
         var sum = 0.0
         var samples = 0
         var i = 0
@@ -258,9 +293,10 @@ internal class AudioPlayer(private val listener: PlaybackListener) {
             samples++
             i += 2
         }
-        if (samples == 0) return
+        if (samples == 0) return 0f
         val rms = (sqrt(sum / samples) / 32768.0).toFloat()
         if (rms > peak) peak = rms
+        return rms
     }
 
     /** Scales little-endian 16-bit samples in [buffer] by the current volume, or silences them when muted. */

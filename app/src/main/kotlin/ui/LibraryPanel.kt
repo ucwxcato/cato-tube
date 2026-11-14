@@ -65,8 +65,8 @@ private const val RECENT_LIMIT = 10
 private val AUDIO_EXTENSIONS = arrayOf("mp3", "wav", "flac", "opus")
 
 /**
- * Home tab: search, sort, import, and the track list. Shows the 10 most recently added tracks
- * until the user picks "All" or types a search.
+ * Home tab: search, sort, import, and the track list. Shows the full library by default; Recent
+ * limits the list to the 10 most recently added tracks.
  */
 internal class LibraryPanel(
     private val frame: JFrame,
@@ -76,7 +76,7 @@ internal class LibraryPanel(
     private val onLibraryChanged: (MusicLibrary?) -> Unit = {},
 ) : JPanel(BorderLayout(0, 12)) {
     private var library: MusicLibrary? = null
-    private var showAll = false
+    private var showAll = true
     private var sortReversed = false
 
     private val model = TrackTableModel()

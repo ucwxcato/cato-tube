@@ -189,6 +189,15 @@ internal class PlaybackController(private val resolve: (Track) -> Path?) : Playb
     /** Band levels for the visualizer. Zeros unless audio is actually playing, so the bars settle when paused. Safe to call from the EDT. */
     fun spectrum(): FloatArray = if (playing) player.spectrum() else SILENT_SPECTRUM
 
+    /** Attaches one visual or mascot consumer to the shared audio analysis feed. */
+    fun attachFeatures(): AudioFeatures = player.attachFeatures()
+
+    /** Detaches one previously attached consumer. */
+    fun detachFeatures() = player.detachFeatures()
+
+    /** Latest shared feature frame. Consumers should not retain it across frames. */
+    fun audioFeatures(): AudioFeatures = player.audioFeatures()
+
     /** Stops playback and releases the audio device. Call once, when the window closes. */
     fun close() {
         player.close()

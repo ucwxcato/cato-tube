@@ -126,7 +126,7 @@ internal fun showMainWindow() {
         minimumSize = Dimension(900, 600)
         setSize(1100, 750)
         setLocationRelativeTo(null)
-        contentPane = Backdrop(playback::spectrum).apply {
+        contentPane = Backdrop(playback).apply {
             border = BorderFactory.createEmptyBorder(16, 16, 16, 16)
             add(
                 JPanel(BorderLayout(16, 0)).apply {

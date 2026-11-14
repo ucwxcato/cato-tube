@@ -33,8 +33,10 @@ internal class SpectrumAnalyzer {
     }
     private val mono = DoubleArray(ANALYSIS_FRAMES)
 
-    /** Analyzes the first [count] bytes of [pcm]. Returns a new array of band levels, each 0 to 1. */
-    fun analyze(pcm: ByteArray, count: Int): FloatArray {
+    /** Analyzes the first [count] bytes of [pcm] into caller-owned [output]. */
+    fun analyze(pcm: ByteArray, count: Int, output: FloatArray): FloatArray {
+        require(count in 0..pcm.size) { "count must be within the PCM buffer" }
+        require(output.size == SPECTRUM_BANDS) { "output must contain $SPECTRUM_BANDS bands" }
         val frames = minOf(ANALYSIS_FRAMES, count / 4)
         for (n in 0 until frames) {
             val i = n * 4
@@ -44,7 +46,6 @@ internal class SpectrumAnalyzer {
         }
         for (n in frames until ANALYSIS_FRAMES) mono[n] = 0.0
 
-        val bands = FloatArray(SPECTRUM_BANDS)
         for (band in 0 until SPECTRUM_BANDS) {
             val coeff = coefficients[band]
             var s1 = 0.0
@@ -58,8 +59,8 @@ internal class SpectrumAnalyzer {
             // The Hann window averages to one half, so a sine of amplitude A reads as A * N / 4.
             val amplitude = 4.0 * sqrt(power) / ANALYSIS_FRAMES
             val db = 20.0 * log10(max(amplitude, 1e-9))
-            bands[band] = ((db - FLOOR_DB) / RANGE_DB).coerceIn(0.0, 1.0).toFloat()
+            output[band] = ((db - FLOOR_DB) / RANGE_DB).coerceIn(0.0, 1.0).toFloat()
         }
-        return bands
+        return output
     }
 }

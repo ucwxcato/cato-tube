@@ -1,6 +1,10 @@
 package org.catosaur.app
 
-import org.catosaur.app.playback.SPECTRUM_BANDS
+import org.catosaur.app.playback.AudioFeatures
+import org.catosaur.app.playback.PlaybackController
+import org.catosaur.app.visual.ClassicBars
+import org.catosaur.app.visual.VisualizerRenderer
+import org.catosaur.app.visual.VisualizerSettings
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.BorderLayout
@@ -9,6 +13,7 @@ import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.Frame
 import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -46,6 +51,7 @@ import javax.swing.JProgressBar
 import javax.swing.JTable
 import javax.swing.JTextField
 import javax.swing.Timer
+import javax.swing.SwingUtilities
 import javax.swing.event.PopupMenuEvent
 import javax.swing.event.PopupMenuListener
 import javax.swing.plaf.basic.BasicComboBoxUI
@@ -571,33 +577,56 @@ internal class SectionHeading(initial: String) : JComponent() {
 }
 
 /**
- * Window body: the editor background with two soft colored glows and a live spectrum. [spectrum]
- * supplies band levels (0 to 1) each frame; the bars rise from the bottom edge and ease toward it, so
- * they settle flat when playback stops. Translucent [Card]s sit on top, so the bars show through the glass.
+ * Window body: the editor background with two soft colored glows and the active visualizer renderer.
+ * Translucent [Card]s sit on top, so the bars show through the glass.
  */
 internal class Backdrop(
-    private val spectrum: () -> FloatArray = { FloatArray(SPECTRUM_BANDS) },
+    private val playback: PlaybackController? = null,
 ) : JPanel(BorderLayout()) {
-    private val shown = FloatArray(SPECTRUM_BANDS)
-    private val ticker = Timer(BARS_FRAME_MS) { tickBars() }
+    private val renderer: VisualizerRenderer = ClassicBars()
+    private val settings = VisualizerSettings()
+    private val inactiveFeatures = AudioFeatures()
+    private val ticker = Timer(BARS_FOCUSED_FRAME_MS) { tickRenderer() }
+    private var featuresAttached = false
 
     init {
         isOpaque = true
         background = Palette.base
-        ticker.start()
     }
 
-    private fun tickBars() {
-        val target = spectrum()
-        var moved = false
-        for (band in shown.indices) {
-            val goal = target[band]
-            val rate = if (goal > shown[band]) BARS_ATTACK else BARS_RELEASE
-            val next = shown[band] + (goal - shown[band]) * rate
-            if (abs(next - shown[band]) > 0.001f) moved = true
-            shown[band] = next
+    override fun addNotify() {
+        super.addNotify()
+        if (playback != null) ticker.start()
+    }
+
+    override fun removeNotify() {
+        ticker.stop()
+        detachFeatures()
+        super.removeNotify()
+    }
+
+    private fun tickRenderer() {
+        val window = SwingUtilities.getWindowAncestor(this)
+        val minimized = window is Frame && (window.extendedState and Frame.ICONIFIED) != 0
+        if (!isShowing || minimized) {
+            detachFeatures()
+            return
         }
-        if (moved) repaint()
+
+        ticker.delay = if (window?.isFocused == true) BARS_FOCUSED_FRAME_MS else BARS_UNFOCUSED_FRAME_MS
+        if (playback != null && !featuresAttached) {
+            playback.attachFeatures()
+            featuresAttached = true
+        }
+        val features = playback?.audioFeatures() ?: inactiveFeatures
+        if (renderer.update(features, settings)) repaint()
+    }
+
+    private fun detachFeatures() {
+        if (featuresAttached) {
+            playback?.detachFeatures()
+            featuresAttached = false
+        }
     }
 
     override fun paintComponent(g: Graphics) {
@@ -621,34 +650,13 @@ internal class Backdrop(
             arrayOf(withAlpha(Palette.glow, 0.13f), withAlpha(Palette.glow, 0f)),
         )
         g2.fillRect(0, 0, width, height)
-        paintBars(g2, w, h)
+        renderer.render(g2, width, height, playback?.audioFeatures() ?: inactiveFeatures, settings)
         g2.dispose()
-    }
-
-    /** One accent color for every bar. Each bar has a wide faint halo and a brighter core. */
-    private fun paintBars(g2: Graphics2D, w: Float, h: Float) {
-        val slot = w / SPECTRUM_BANDS
-        val barWidth = slot * 0.5f
-        val maxHeight = h * 0.5f
-        for (band in 0 until SPECTRUM_BANDS) {
-            val level = shown[band].coerceIn(0f, 1f)
-            if (level < 0.01f) continue
-            val barHeight = maxHeight * level
-            val x = slot * band + (slot - barWidth) / 2f
-            val y = h - barHeight
-            g2.color = withAlpha(Palette.focus, 0.02f + 0.04f * level)
-            g2.fill(RoundRectangle2D.Float(x - 12f, y - 12f, barWidth + 24f, barHeight + 12f, 22f, 22f))
-            g2.color = withAlpha(Palette.focus, 0.04f + 0.07f * level)
-            g2.fill(RoundRectangle2D.Float(x - 5f, y - 5f, barWidth + 10f, barHeight + 5f, 12f, 12f))
-            g2.color = withAlpha(Palette.focus, 0.08f + 0.14f * level)
-            g2.fill(RoundRectangle2D.Float(x, y, barWidth, barHeight, 6f, 6f))
-        }
     }
 }
 
-private const val BARS_FRAME_MS = 33
-private const val BARS_ATTACK = 0.55f
-private const val BARS_RELEASE = 0.14f
+private const val BARS_FOCUSED_FRAME_MS = 33
+private const val BARS_UNFOCUSED_FRAME_MS = 67
 
 /**
  * Frosted-glass panel: a white translucent layer over whatever is behind it, a sheen band at the

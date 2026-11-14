@@ -137,6 +137,7 @@ Proposed contracts (Kotlin, design-only names):
 internal class AudioFeatures {
     // Read-only view. Consumers must not keep a reference across frames; the publisher reuses the buffer.
     val bands: FloatArray          // SPECTRUM_BANDS values, 0..1, after smoothing
+    val rawBands: FloatArray       // current analyzer bands; Classic Bars uses these for its existing easing
     val waveform: FloatArray       // WAVEFORM_SAMPLES mono values, -1..1
     val energy: Float              // block RMS, 0..1
     val bass: Float                // mean of bands 0..9 (about 40 to 250 Hz)
@@ -161,10 +162,13 @@ internal enum class StartReason { USER_SELECT, SKIP_NEXT, SKIP_PREVIOUS, AUTO_AD
 // visual/VisualizerRenderer.kt
 internal interface VisualizerRenderer {
     val mode: VisualizerMode
+    fun update(features: AudioFeatures, settings: VisualizerSettings): Boolean // advances easing; true means repaint
     fun render(g: Graphics2D, width: Int, height: Int, features: AudioFeatures, settings: VisualizerSettings)
     fun reset()   // clears particles, smoothing state, and cached geometry on mode switch
 }
 ```
+
+The renderer contract may advance state in `update`, called by its host's timer. `render` only paints. The initial `VisualizerSettings` contains the selected `VisualizerMode`; Phase 3 adds the persisted controls and schema.
 
 The existing `PlayerState.level` (from `takeLevel()`) and the new `AudioFeatures.energy` are separate values. Both are derived from the same block, but each has its own consumer. The row pulse keeps using `level`.
 
@@ -173,6 +177,7 @@ The existing `PlayerState.level` (from `takeLevel()`) and the new `AudioFeatures
 ### Feature publication and analysis lifecycle
 
 - `AudioFeatures` has two preallocated snapshot objects. The playback thread writes the back buffer, then publishes it with one `@Volatile` reference swap. Readers on the EDT read the reference and never lock.
+- Each snapshot carries both smoothed `bands` and current `rawBands`. Classic Bars eases the raw values on the Backdrop timer, preserving its original response while other renderers use the shared smoothed bands.
 - Consumers call `attach()` when they start showing and `detach()` when they stop (Backdrop, preview, mascot). The playback thread runs waveform copy and beat detection only while the consumer count is above zero. Playback audio output is unaffected.
 - When `active` is false (paused, stopped, or no track), the publisher stops writing new values and consumers ease toward rest. Stopping playback sets bands, waveform, energy, and beat to zero, the same as `AudioPlayer` does today when it clears `bands` on stop.
 - The analyzer writes into a caller-owned buffer. The per-chunk `FloatArray` allocation in `SpectrumAnalyzer.analyze` goes away.
@@ -331,33 +336,36 @@ Phase numbers are local to this plan. Phase 0 is the design lock. Each phase mus
 
 ### Phase 0 — Design lock and baseline
 
-- [ ] Owner decisions in section 10 are accepted or changed, and the changes are written back into this document.
-- [ ] Baseline CPU: record `javaw` CPU seconds over 30 s with music playing, music stopped, and window minimized (Task Manager or `Get-Process javaw`). Record numbers in section 11; do not estimate.
-- [ ] Baseline paint cost: measure `Backdrop.paintComponent` time at 1100 × 750 and 900 × 600 with a temporary timer around the call (not committed). Record numbers in section 11.
-- [ ] Grep confirms `takeLevel()` has one caller (`PlaybackController.onPosition`). Evidence: grep output.
-- [ ] Owner decision 10.1 on the AGENTS.md visual-component rule is recorded before any new package is created.
-- [ ] **Verify:** `./gradlew.bat :app:jar` and `./gradlew.bat test` succeed on the untouched baseline, so later phases have a clean comparison.
+- [x] Owner decisions in section 10 are accepted or changed, and the changes are written back into this document.
+- [x] Baseline CPU: record `javaw` CPU seconds over 30 s with music playing, music stopped, and window minimized (Task Manager or `Get-Process javaw`). Record numbers in section 11; do not estimate.
+- [x] Baseline paint cost: measure `Backdrop.paintComponent` time at 1100 × 750 and 900 × 600 with a temporary timer around the call (not committed). Record numbers in section 11.
+- [x] Grep confirms `takeLevel()` has one caller (`PlaybackController.onPosition`). Evidence: grep output.
+- [x] Owner decision 10.1 on the AGENTS.md visual-component rule is recorded before any new package is created.
+- [x] **Verify:** `./gradlew.bat :app:jar` and `./gradlew.bat test` succeed on the untouched baseline, so later phases have a clean comparison.
 
 ### Phase 1 — Shared audio feature feed (no visible change)
 
-- [ ] `SpectrumAnalyzer.analyze` writes into a caller-owned `FloatArray` instead of allocating one per chunk. Its existing behavior and test are unchanged.
-- [ ] `playback/AudioFeatures.kt`: two preallocated snapshots, swapped through one `@Volatile` reference. Energy comes from the same block as `measure`. Bass, mid, and treble are means of the band index groups in section 4 (the group bounds are pinned by a test).
-- [ ] `playback/WaveformBuffer.kt`: a ring holding the most recent 512 mono samples per chunk, written on the playback thread, copied out by readers into a caller array. (512 is a proposed size; see 11.3.)
-- [ ] `playback/BeatDetector.kt`: onset when bass energy exceeds its moving average (proposed window about 1 s) by a ratio (proposed 1.5), with a 250 ms refractory period and a pulse that decays over about 200 ms. All constants are named in one place.
-- [ ] Consumer counting: `attach()` and `detach()`. When the count is zero, waveform copy and beat detection are skipped. Playback still runs.
-- [ ] `playback/SimulatedFeatures.kt`: deterministic synthetic bands, energy, and beats for the preview while stopped. No audio thread involved.
-- [ ] Row pulse in the library and playlists still responds to playback (uses `PlayerState.level`, unchanged).
-- [ ] **Verify:** `SpectrumAnalyzerTest` extended: a 100 Hz sine lands in the bass group, a 4 kHz sine in the treble group, and silence gives zeros. Group bounds are asserted.
-- [ ] **Verify:** `BeatDetectorTest`: a 120 BPM click train yields one beat per click within one frame; a steady tone yields no beats after warm-up; the noise false-trigger count over 60 s of synthetic noise is recorded and below the stated limit.
-- [ ] **Verify:** Backdrop bars look the same as before (screenshots before and after, same track position, visually equivalent). `:app:jar` has no new warnings; `test` passes.
+- [x] `SpectrumAnalyzer.analyze` writes into a caller-owned `FloatArray` instead of allocating one per chunk. Its existing behavior and test are unchanged.
+- [x] `playback/AudioFeatures.kt`: two preallocated snapshots, swapped through one `@Volatile` reference. Energy comes from the same block as `measure`. Bass, mid, and treble are means of the band index groups in section 4 (the group bounds are pinned by a test).
+- [x] `playback/WaveformBuffer.kt`: a ring holding the most recent 512 mono samples per chunk, written on the playback thread, copied out by readers into a caller array. (512 is a proposed size; see 11.3.)
+- [x] `playback/BeatDetector.kt`: onset when bass energy exceeds its moving average (proposed window about 1 s) by a ratio (proposed 1.5), with a 250 ms refractory period and a pulse that decays over about 200 ms. All constants are named in one place.
+- [x] Consumer counting: `attach()` and `detach()`. When the count is zero, waveform copy and beat detection are skipped. Playback still runs.
+- [x] `playback/SimulatedFeatures.kt`: deterministic synthetic bands, energy, and beats for the preview while stopped. No audio thread involved.
+- [x] Row pulse in the library and playlists still responds to playback (uses `PlayerState.level`, unchanged).
+- [x] **Verify:** `SpectrumAnalyzerTest` extended: a 100 Hz sine lands in the bass group, a 4 kHz sine in the treble group, and silence gives zeros. Group bounds are asserted.
+- [x] **Verify:** `BeatDetectorTest`: a 120 BPM click train yields one beat per click within one frame; a steady tone yields no beats after warm-up; the noise false-trigger count over 60 s of synthetic noise is recorded and below the stated limit.
+- [x] **Verify:** Backdrop bars visually match in baseline and Phase 1 screenshots from the same FFmpeg-generated test clip at 3360 ms. Only 108 of 825,000 pixels differed (mean channel delta 0.000076; maximum 3). `:app:jar` completed without new Kotlin warnings; `test` passed.
 
 ### Phase 2 — Renderer interface and Classic Bars (behavior-preserving)
 
-- [ ] `visual/VisualizerRenderer.kt`: the interface from section 4. Renderers have no timers.
-- [ ] `visual/ClassicBars.kt`: bar drawing moved out of `Backdrop.paintBars` with the same colors, halo layers, and easing constants.
-- [ ] `Backdrop` keeps the glows and the window fill, delegates bars to the active renderer, and attaches to `AudioFeatures`. It keeps one `Timer`.
-- [ ] Backdrop ticker checks visibility: it does not repaint while not showing, and it reads the frame policy in section 6.
-- [ ] **Verify:** screenshots before and after show equivalent bars at 1100 × 750. CPU against the Phase 0 baseline is no more than 10 percent higher while playing (the 10 percent threshold is proposed; owner may change it).
+- [x] `visual/VisualizerRenderer.kt`: the interface from section 4, including an `update` method for timer-driven easing. Renderers have no timers.
+- [x] `visual/ClassicBars.kt`: bar drawing moved out of `Backdrop.paintBars` with the same colors, halo layers, geometry, and easing constants.
+- [x] Minimal `VisualizerMode` and `VisualizerSettings` contracts added so the renderer interface is typed; Phase 3 will add persisted settings.
+- [x] `Backdrop` keeps the glows and the window fill, delegates bars to the active renderer, and attaches to `AudioFeatures`. It keeps one `Timer`.
+- [x] Backdrop ticker checks visibility, detaches analysis while hidden or minimized, avoids repainting while not showing, and applies the focused/unfocused frame policy in section 6.
+- [x] `:app:jar` and `test` pass.
+- [x] **Owner visual check:** the owner confirmed the bars match at 1100 × 750 and ease flat on pause and stop (2026-11-14).
+- [x] **Owner CPU check:** the owner confirmed playback stayed within the proposed 10 percent increase over the Phase 0 baseline (2026-11-14); no numeric CPU sample was supplied.
 
 ### Phase 3 — Settings model and persistence
 
@@ -451,14 +459,16 @@ Energetic is entered from Calm when features.energy or beat stays above a thresh
 ### Phase 10 — Documentation and release
 
 - [ ] `README.md`: Visualizer page, presets and their file location, mascot settings, reduced motion, and the requirements for each feature.
-- [ ] `AGENTS.md`: update the visual-components rule and the package layout if owner accepts decision 10.1.
+- [x] `AGENTS.md`: visual-components rule and package layout updated in Phase 0 after the owner accepted decision 10.1.
 - [ ] `DOCS/music-player-devplan.md`: link this plan from its visualizer and Settings items. This needs owner approval, since this plan does not edit that file.
 - [ ] **Verify:** `./gradlew.bat :app:jar` produces `app\build\libs\app-all.jar`; `javaw -jar app\build\libs\app-all.jar` opens the window; the final report lists every verification with its evidence type.
 - [ ] Do not commit or push unless the owner asks.
 
-## 10. Decisions requiring input (recommended defaults)
+## 10. Decision record (recommended defaults)
 
-- **10.1 AGENTS.md rule conflict.** `AGENTS.md` says new visual components go in `Theme.kt`. Default: new `visual/` and `mascot/` packages, and `Theme.kt` keeps shared primitives such as `ThemedSlider` and the `Backdrop` shell. Alternative: put everything in `Theme.kt`. Not recommended, since `Theme.kt` is already 1328 lines. Owner: user. Needed before Phase 2, the first phase that creates a new package.
+**Phase 0 decisions (2026-11-14):** The owner accepted the recommended defaults for 10.2–10.10. For 10.1, the owner chose separate `visual/` and `mascot/` packages, with shared Swing primitives and the `Backdrop` shell in `Theme.kt`. `AGENTS.md` was updated to match before any new package is created.
+
+- **10.1 AGENTS.md rule conflict.** Decision: use new `visual/` and `mascot/` packages; keep shared primitives such as `ThemedSlider` and the `Backdrop` shell in `Theme.kt`. The alternative was to put everything in `Theme.kt`, which is already 1328 lines. Owner decision recorded 2026-11-14.
 - **10.2 Where mascot settings live.** There is no Settings dialog yet. Default: a Mascot group on the Visualizer page. Move when the Settings dialog exists (music plan Phase 5).
 - **10.3 Preset file location.** Default: `%APPDATA%\CatoTube\visualizer-presets.json`. Preferences cannot hold a large preset list reliably (8192-character value limit). Alternative: next to `library.json` in the library root, which ties presets to one library.
 - **10.4 Mascot variants.** Default: three palettes (tabby, black, white), fixed and independent of the accent color. Alternative: derive the palette from the accent.
@@ -473,10 +483,10 @@ Energetic is entered from Calm when features.energy or beat stays above a thresh
 
 Measured values are recorded here during Phase 0 and later phases. Do not enter estimates.
 
-- **Baseline CPU (Phase 0):** not yet measured.
-- **Baseline `Backdrop` paint time (Phase 0):** not yet measured.
+- **Baseline CPU (Phase 0, 2026-11-14):** Windows, `Get-Process javaw` CPU-time deltas over measured 30 s windows. Playing: 42.9219 CPU s / 30.119 s wall time (142.51%). Stopped: 0.2188 CPU s / 30.106 s (0.73%). Minimized while playback continued: 0.5000 CPU s / 30.013 s (1.67%).
+- **Baseline `Backdrop` paint time (Phase 0, 2026-11-14):** off-screen Java2D `BufferedImage`, 500 warm-up calls and 3,000 measured `paintComponent` calls per size, with all 32 bands at 0.65. At 1100 × 750: mean 17.2599 ms, p50 16.7417 ms, p95 19.8467 ms. At 900 × 600: mean 11.8165 ms, p50 11.5955 ms, p95 12.6135 ms. The probe was temporary and not committed; measurements isolate the method and do not include full-window painting or display compositing.
 - **11.1 Bar count above 32.** The analyzer has 32 bands. Counts above 32 must either interpolate between bands or add a second analyzer pass. Interpolation is the default, since it avoids a second pass (see section 1, one analysis feed). Tune after the Phase 4 visual check.
-- **11.2 Beat detector constants.** Window, ratio, refractory period, and decay start at the proposed values in Phase 1. Tune on real tracks after Phase 8.
+- **11.2 Beat detector constants.** Starting values: 1 s exponential moving-average window, 1.5 onset ratio with a 0.12 minimum energy increase, 250 ms refractory period, and linear 200 ms pulse decay. The 120 BPM test detected all 8 clicks within one 23 ms frame; steady bass produced no retriggers after warm-up. Deterministic 60 s white noise produced 0 false triggers (limit: fewer than 2). Tune on authorized real tracks after Phase 8.
 - **11.3 Waveform sample count.** 512 proposed. Tune in Phase 6b.
 - **11.4 Particle pool size and spawn rate.** 400 maximum, rate from `particleCount`. Tune in Phase 6c against the CPU numbers.
 - **11.5 Mode thumbnails.** The owner's original prompt asks for visual previews where feasible. Default: text names in Phase 4, thumbnails added in Phase 6 if the cost is small (rendered once at startup, cached). Owner decision after Phase 6.

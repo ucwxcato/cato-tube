@@ -49,7 +49,7 @@ External tools must be on `PATH` for real downloads: `yt-dlp`, `ffmpeg`, `ffprob
 
 - Kotlin only. Keep the existing style: 4-space indent, trailing commas where the file already uses them, `private` top-level functions by default.
 - Swing UI work happens on the EDT. Background work (process reading, watchdog) must hand UI updates back through `SwingUtilities.invokeLater`.
-- Put new visual components and styling in `Theme.kt`. Keep `App.kt` for behavior and wiring.
+- Keep shared Swing primitives and common styling in `Theme.kt`. Visualizer and mascot feature code belongs in the plan-defined `visual/`, `mascot/`, and `ui/VisualizerPage.kt` files. Keep `App.kt` for behavior and wiring.
 - Use `Palette` and `Fonts` for colors and fonts. Do not hard-code new colors in `App.kt`.
 - Custom components use `Eased` for animation and `smoothCopy()` for anti-aliased painting. Keep Swing `Timer` callbacks cheap and repaint only when state changes.
 - Do not change the yt-dlp argument list (`startDownload`) without reading the yt-dlp decisions in `DOCS/music-player-devplan.md`. Flags like `--force-ipv4`, `--socket-timeout`, and the `player_client` override were tuned on purpose.

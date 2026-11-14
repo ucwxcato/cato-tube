@@ -338,7 +338,7 @@ Phase numbers follow the prompt's section 18 where it names them. Phase 6 covers
 - [x] Local import: copies into `songs/` with collision suffix, originals untouched. Evidence: `MusicLibraryTest.importCopiesIntoSongsAndSkipsUnsupportedFiles`, `FileNamesTest.copyAsNewSongNeverOverwritesAndNumbersCollisions`. Ctrl+O is deferred to Phase 5 as planned.
 - [x] One-time offer to import `downloads/*.mp3`, guarded by `schemaMigrationDone`, files copied not moved. Evidence: the offer appeared and two tracks were imported from `downloads/`; originals remain.
 - [x] Library tab: search, sort, track list, empty state, right-click menu (Open File Location, Edit Details, Remove from Library with default-off audio deletion), F2 and Delete shortcuts. Evidence: list screenshots. Right-click menu and dialogs were not exercised by automation; Remove and Edit logic are covered by `MusicLibraryTest`.
-- [x] Recently Added (10 most recent) with a Recent/All segmented control in the list header. Deviation: shown as the table's default scope, not a separate horizontal strip. Evidence: screenshots.
+- [x] Recently Added (10 most recent) with a Recent/All segmented control in the list header. Deviation: shown as the Recent scope in the table rather than a separate horizontal strip; Home now defaults to All. Evidence: screenshots.
 - [x] Verify: `LibraryStorage` tests (round trip, corrupt main falls back to `.bak`, unknown schema read-only, save interruption leaves a valid file). Evidence: 6/6 pass.
 - [x] Verify: close and reopen keeps the library (songs listed after relaunch); missing folder shows the modal; layouts at 1100 × 750 and 900 × 600 have no overlap. Unwritable read-only mode is covered by unit tests only.
 
