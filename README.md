@@ -35,6 +35,8 @@ The JAR bundles the app and its JVM dependencies. `yt-dlp` and `ffmpeg` remain s
 
 On Windows, double-click `app-all.jar` to open the dark URL entry window. It includes a save-folder picker and download progress bar. If Windows does not associate JAR files with Java, run it with the `java -jar` command above. The app still needs `yt-dlp` and FFmpeg installed.
 
+CatoTube forces IPv4 for yt-dlp requests. On the development machine, YouTube and npm returned quickly over IPv4 while IPv6 connections timed out; using IPv4 reduced extraction of a test clip from a long stall to about six seconds. This setting is local to CatoTube and does not change Windows networking.
+
 For development, you can also run it through Gradle:
 
 ```powershell

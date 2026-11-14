@@ -6,7 +6,11 @@ import java.nio.file.Files
 import javax.swing.*
 import java.awt.BorderLayout
 import java.awt.Dimension
-import java.awt.Color
+import java.awt.Font
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.GridLayout
+import java.awt.Insets
 import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -17,6 +21,8 @@ private var outputDirectory = Path.of("downloads").toAbsolutePath()
 
 fun main() {
     if (System.console() == null) {
+        System.setProperty("awt.useSystemAAFontSettings", "on")
+        System.setProperty("swing.aatext", "true")
         SwingUtilities.invokeLater { showWindow() }
         return
     }
@@ -52,74 +58,120 @@ private fun runCli() {
 }
 
 private fun showWindow() {
-    val dark = Color(35, 37, 43)
-    val darker = Color(26, 28, 33)
-    val textColor = Color(232, 234, 238)
-    val accent = Color(78, 130, 220)
-    UIManager.put("Panel.background", dark)
-    UIManager.put("OptionPane.background", dark)
-    UIManager.put("OptionPane.messageForeground", textColor)
-    UIManager.put("Label.foreground", textColor)
-    UIManager.put("TextField.background", darker)
-    UIManager.put("TextField.foreground", textColor)
-    UIManager.put("TextField.caretForeground", textColor)
-    UIManager.put("TextArea.background", darker)
-    UIManager.put("TextArea.foreground", textColor)
-    UIManager.put("TextArea.caretForeground", textColor)
-    UIManager.put("ScrollPane.background", darker)
-    UIManager.put("Button.background", Color(55, 59, 68))
-    UIManager.put("Button.foreground", textColor)
-    UIManager.put("ProgressBar.background", darker)
-    UIManager.put("ProgressBar.foreground", accent)
+    UIManager.put("Panel.background", Palette.base)
+    UIManager.put("OptionPane.background", Palette.surface)
+    UIManager.put("OptionPane.messageForeground", Palette.text)
+    UIManager.put("Label.foreground", Palette.text)
+    UIManager.put("Label.font", Fonts.ui(13))
+    UIManager.put("Button.background", Palette.surfaceRaised)
+    UIManager.put("Button.foreground", Palette.text)
+    UIManager.put("Button.font", Fonts.ui(13))
+    UIManager.put("ScrollBar.width", 10)
 
     val frame = JFrame("CatoTube for RoboBeat").apply {
         defaultCloseOperation = JFrame.EXIT_ON_CLOSE
-        background = dark
-        minimumSize = Dimension(700, 420)
-        setSize(780, 480)
+        minimumSize = Dimension(720, 540)
+        setSize(840, 600)
         setLocationRelativeTo(null)
     }
 
-    val urlField = JTextField()
-    val folderField = JTextField(outputDirectory.toString()).apply { isEditable = false }
-    val log = JTextArea("Only download audio you own or are authorized to use.\n")
-        .apply { isEditable = false; lineWrap = true; wrapStyleWord = true; background = darker; foreground = textColor }
-    val logScroll = JScrollPane(log)
-    val downloadButton = JButton("Download MP3").apply { isOpaque = true; background = accent; foreground = Color.WHITE }
-    val folderButton = JButton("Browse")
-    val progress = JProgressBar(0, 100).apply {
-        isStringPainted = true
-        string = "Ready"
+    val urlField = GlowField()
+    val folderField = GlowField(outputDirectory.toString()).apply {
+        isEditable = false
+        foreground = Palette.muted
     }
+    val log = JTextArea("Only download audio you own or are authorized to use.\n").apply {
+        isEditable = false
+        lineWrap = true
+        wrapStyleWord = true
+        isOpaque = false
+        font = Fonts.mono(13)
+        foreground = Palette.text
+    }
+    val logScroll = JScrollPane(log).apply {
+        isOpaque = false
+        viewport.isOpaque = false
+        border = BorderFactory.createEmptyBorder()
+        verticalScrollBar.setUI(SlimScrollBarUI())
+    }
+    val downloadButton = PillButton("Download MP3", primary = true)
+    val folderButton = PillButton("Browse")
+    val progress = GlowProgressBar().apply { string = "Ready" }
     val activeProcess = AtomicReference<Process?>(null)
-    val cancelButton = JButton("Cancel").apply { isEnabled = false }
-    val inputs = JPanel(java.awt.GridBagLayout()).apply {
-        border = BorderFactory.createEmptyBorder(12, 12, 8, 12)
-        val c = java.awt.GridBagConstraints().apply {
-            fill = java.awt.GridBagConstraints.HORIZONTAL
-            insets = java.awt.Insets(3, 4, 3, 4)
+    val cancelButton = PillButton("Cancel", hoverTint = Palette.danger).apply { isEnabled = false }
+
+    val inputCard = Card(GridBagLayout(), arc = 32f).apply {
+        border = BorderFactory.createEmptyBorder(18, 20, 18, 20)
+        val c = GridBagConstraints().apply {
+            gridx = 0
+            gridy = 0
+            gridwidth = 2
+            fill = GridBagConstraints.HORIZONTAL
+            anchor = GridBagConstraints.WEST
+            insets = Insets(0, 0, 8, 0)
         }
-        c.gridx = 0; c.gridy = 0; c.weightx = 0.0; c.gridheight = 1
-        add(JLabel("YouTube URL:"), c)
-        c.gridx = 1; c.weightx = 1.0
+        add(sectionLabel("YouTube link"), c)
+        c.gridy = 1
+        c.gridwidth = 1
+        c.weightx = 1.0
+        c.insets = Insets(0, 0, 0, 12)
         add(urlField, c)
-        c.gridx = 2; c.weightx = 0.0
+        c.gridx = 1
+        c.weightx = 0.0
+        c.insets = Insets(0, 0, 0, 0)
         add(downloadButton, c)
-        c.gridx = 0; c.gridy = 1; c.gridheight = 1
-        add(JLabel("Save to:"), c)
-        c.gridx = 1; c.weightx = 1.0
+        c.gridx = 0
+        c.gridy = 2
+        c.gridwidth = 2
+        c.insets = Insets(18, 0, 8, 0)
+        add(sectionLabel("Save to"), c)
+        c.gridy = 3
+        c.gridwidth = 1
+        c.weightx = 1.0
+        c.insets = Insets(0, 0, 0, 12)
         add(folderField, c)
-        c.gridx = 2; c.weightx = 0.0
+        c.gridx = 1
+        c.weightx = 0.0
+        c.insets = Insets(0, 0, 0, 0)
         add(folderButton, c)
     }
-    frame.layout = BorderLayout()
-    frame.add(inputs, BorderLayout.NORTH)
-    frame.add(logScroll, BorderLayout.CENTER)
-    frame.add(JPanel(BorderLayout(8, 0)).apply {
-        border = BorderFactory.createEmptyBorder(8, 12, 12, 12)
+    val logCard = Card(BorderLayout(0, 10)).apply {
+        border = BorderFactory.createEmptyBorder(16, 20, 14, 12)
+        add(sectionLabel("Activity"), BorderLayout.NORTH)
+        add(logScroll, BorderLayout.CENTER)
+    }
+    val progressRow = JPanel(BorderLayout(12, 0)).apply {
+        isOpaque = false
         add(progress, BorderLayout.CENTER)
         add(cancelButton, BorderLayout.EAST)
-    }, BorderLayout.SOUTH)
+    }
+    val header = JPanel(BorderLayout(16, 0)).apply {
+        isOpaque = false
+        border = BorderFactory.createEmptyBorder(0, 0, 18, 0)
+        add(LogoMark(), BorderLayout.WEST)
+        add(JPanel(GridLayout(2, 1, 0, 2)).apply {
+            isOpaque = false
+            add(JLabel("CatoTube").apply {
+                font = Fonts.ui(22, Font.BOLD)
+                foreground = Palette.text
+            })
+            add(JLabel("Save audio for RoboBeat. Only use what you own or are authorized to use.").apply {
+                font = Fonts.ui(12)
+                foreground = Palette.muted
+            })
+        }, BorderLayout.CENTER)
+    }
+    val body = JPanel(BorderLayout(0, 14)).apply {
+        isOpaque = false
+        add(inputCard, BorderLayout.NORTH)
+        add(logCard, BorderLayout.CENTER)
+        add(progressRow, BorderLayout.SOUTH)
+    }
+    frame.contentPane = Backdrop().apply {
+        border = BorderFactory.createEmptyBorder(24, 26, 22, 26)
+        add(header, BorderLayout.NORTH)
+        add(body, BorderLayout.CENTER)
+    }
 
     cancelButton.addActionListener {
         activeProcess.get()?.let { process ->
@@ -182,7 +234,7 @@ private fun showWindow() {
                 process.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
                         lastOutputAt.set(System.nanoTime())
-                        val percent = Regex("\\[download\\]\\s+(\\d+(?:\\.\\d+)?)%")
+                        val percent = Regex("\\[download]\\s+(\\d+(?:\\.\\d+)?)%")
                             .find(line)?.groupValues?.get(1)?.toDoubleOrNull()
                         SwingUtilities.invokeLater {
                             if (percent != null) {
@@ -253,6 +305,11 @@ private fun showWindow() {
     frame.isVisible = true
 }
 
+private fun sectionLabel(text: String): JLabel = JLabel(text.uppercase()).apply {
+    font = Fonts.ui(11, Font.BOLD)
+    foreground = Palette.muted
+}
+
 private fun startDownload(url: String): ProcessBuilder {
     Files.createDirectories(outputDirectory)
     return ProcessBuilder(
@@ -268,6 +325,7 @@ private fun startDownload(url: String): ProcessBuilder {
     "--retries", "1",
     "--extractor-retries", "1",
     "--extractor-args", "youtube:player_client=tv_samsung",
+    "--force-ipv4",
     "--output", outputDirectory.resolve("%(title)s.%(ext)s").toString(),
         url,
     ).directory(File(".").absoluteFile)
