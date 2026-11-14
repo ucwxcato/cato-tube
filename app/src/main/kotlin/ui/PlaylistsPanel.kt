@@ -5,7 +5,7 @@ import org.catosaur.app.FlatButton
 import org.catosaur.app.Fonts
 import org.catosaur.app.Palette
 import org.catosaur.app.SectionHeading
-import org.catosaur.app.SlimScrollBarUI
+import org.catosaur.app.themeScrollBars
 import org.catosaur.app.SmoothTable
 import org.catosaur.app.ThemedComboBox
 import org.catosaur.app.ThemedField
@@ -191,7 +191,7 @@ internal class PlaylistsPanel(
                     border = BorderFactory.createEmptyBorder()
                     viewport.isOpaque = false
                     isOpaque = false
-                    verticalScrollBar.setUI(SlimScrollBarUI())
+                    themeScrollBars()
                 },
                 BorderLayout.CENTER,
             )

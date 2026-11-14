@@ -79,7 +79,8 @@ The first time you open the app, choose a library folder. The library keeps its 
 - **Discover** searches YouTube. Click the plus at the right of a result, or right-click it, to download it or to download it and add it to a playlist. Downloads run one at a time, and a song already in your library is not downloaded again. Searching alone never downloads anything.
 - **Playlists** lists your playlists on the left. Play starts a playlist from the top, and Shuffle plays it in random order. Select a playlist to reorder its songs with Move up and Move down, or remove a song from it. Removing a song from a playlist never deletes the audio file. Deleting a playlist keeps its songs in the library.
 - **Queue** shows the song that is playing and the songs that play next. The tab shows how many songs are queued, and it glows while the queue has songs. Double-click a song, or select it and press Enter, to play it now. Move up, Move down, Remove, and Clear queue change only the queue. They never touch a playlist or the library.
-- **Downloads** takes a single-video URL from `youtube.com` or `youtu.be`. Playlist links are rejected. The MP3 is saved to the folder shown under "Save to".
+- **Downloads** takes a link from `youtube.com` or `youtu.be`. CatoTube runs yt-dlp with `--no-playlist`, so only the single video the link points to is downloaded, never a whole playlist. The MP3 is saved to the folder shown under "Save to".
+- **Visualizer** shows a full-window spectrum that moves with the audio while a song plays.
 - **Bottom bar** controls playback and stays visible on every page. While a download runs, a ring on the right shows its percentage. Click the ring to cancel the download after confirming.
 - **Accent** (bottom of the sidebar) changes the highlight color.
 

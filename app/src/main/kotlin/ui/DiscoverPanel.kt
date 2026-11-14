@@ -5,12 +5,17 @@ import org.catosaur.app.FlatButton
 import org.catosaur.app.Fonts
 import org.catosaur.app.Palette
 import org.catosaur.app.SectionHeading
-import org.catosaur.app.SlimScrollBarUI
+import org.catosaur.app.themeScrollBars
 import org.catosaur.app.ThemedComboBox
 import org.catosaur.app.ThemedField
 import org.catosaur.app.ThemedMenuItem
 import org.catosaur.app.ThemedPopupMenu
+import org.catosaur.app.SegmentedControl
 import org.catosaur.app.download.DownloadManager
+import org.catosaur.app.recommendation.KeyProvider
+import org.catosaur.app.recommendation.RecommendationMode
+import org.catosaur.app.recommendation.RecommendationProvider
+import org.catosaur.app.recommendation.RecommendationSettings
 import org.catosaur.app.download.DownloadRequest
 import org.catosaur.app.download.SearchOutcome
 import org.catosaur.app.download.SearchResult
@@ -51,19 +56,30 @@ private const val RESULT_LIMIT = 10
 private const val CARD_RESULTS = "results"
 private const val CARD_MESSAGE = "message"
 private const val NEW_PLAYLIST_CHOICE = "New playlist..."
+private const val VIEW_SEARCH = "search"
+private const val VIEW_RECOMMENDATIONS = "recommendations"
 
 /**
- * Discover tab: searches YouTube through yt-dlp and lists the results. Searching never downloads
- * anything. A download starts only when the user picks it from a result's right-click menu.
+ * Discover tab: searches YouTube through yt-dlp and lists the results, and offers optional Last.fm
+ * suggestions (For You and Explore). Searching never downloads anything. A download starts only when the
+ * user picks it from a result's right-click menu, and a suggestion only fills the search field.
  */
 internal class DiscoverPanel(
     private val frame: JFrame,
     private val downloads: DownloadManager,
+    private val provider: RecommendationProvider,
+    private val settings: RecommendationSettings,
+    private val keys: KeyProvider,
 ) : JPanel(BorderLayout(0, 12)) {
     private var activeSearch: YouTubeSearch? = null
     private var searchGeneration = 0
     private var lastQuery = ""
     private var library: MusicLibrary? = null
+
+    private val viewCards = CardLayout()
+    private val views = JPanel(viewCards).apply { isOpaque = false }
+    private val modeControl = SegmentedControl(listOf("Search", "For You", "Explore")) { index -> showView(index) }
+    private val recommendations = RecommendationsView(frame, provider, settings, keys) { query -> searchFor(query) }
 
     private val popup = ThemedPopupMenu()
     private val downloadItem = ThemedMenuItem("Download").apply {
@@ -133,7 +149,7 @@ internal class DiscoverPanel(
                 border = BorderFactory.createEmptyBorder()
                 viewport.isOpaque = false
                 isOpaque = false
-                verticalScrollBar.setUI(SlimScrollBarUI())
+                themeScrollBars()
             },
             CARD_RESULTS,
         )
@@ -156,8 +172,25 @@ internal class DiscoverPanel(
             add(content, BorderLayout.CENTER)
         }
 
-        add(toolbar, BorderLayout.NORTH)
-        add(resultsCard, BorderLayout.CENTER)
+        val searchView = JPanel(BorderLayout(0, 12)).apply {
+            isOpaque = false
+            add(toolbar, BorderLayout.NORTH)
+            add(resultsCard, BorderLayout.CENTER)
+        }
+        val recommendationsCard = Card(BorderLayout(), arc = 12f).apply {
+            border = BorderFactory.createEmptyBorder(14, 14, 12, 14)
+            add(recommendations, BorderLayout.CENTER)
+        }
+        views.add(searchView, VIEW_SEARCH)
+        views.add(recommendationsCard, VIEW_RECOMMENDATIONS)
+        add(
+            JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                isOpaque = false
+                add(modeControl)
+            },
+            BorderLayout.NORTH,
+        )
+        add(views, BorderLayout.CENTER)
         add(
             JPanel(BorderLayout()).apply {
                 isOpaque = false
@@ -169,10 +202,28 @@ internal class DiscoverPanel(
         showMessage("Search YouTube to see results here.", error = false)
     }
 
-    /** Cancels any search still running. Call once when the window closes. */
+    /** Cancels any search or recommendation refresh still running. Call once when the window closes. */
     fun shutdown() {
         activeSearch?.cancel()
         activeSearch = null
+        provider.shutdown()
+    }
+
+    /** Fills the search field with [query] and runs the same search as the Search button. Never downloads. */
+    internal fun searchFor(query: String) {
+        modeControl.selectedIndex = 0
+        showView(0)
+        queryField.text = query
+        startSearch()
+    }
+
+    /** Switches between Search (0), For You (1), and Explore (2). Switching never starts a recommendation request. */
+    private fun showView(index: Int) {
+        val searchView = index == 0
+        viewCards.show(views, if (searchView) VIEW_SEARCH else VIEW_RECOMMENDATIONS)
+        if (!searchView) {
+            recommendations.showMode(if (index == 1) RecommendationMode.FOR_YOU else RecommendationMode.EXPLORE)
+        }
     }
 
     /** Connects the panel to [lib], or to no library. Call on the EDT. */

@@ -9,8 +9,15 @@ import org.catosaur.app.NativeTitleBar
 import org.catosaur.app.Palette
 import org.catosaur.app.SectionHeading
 import org.catosaur.app.download.DownloadManager
+import org.catosaur.app.library.LibraryData
 import org.catosaur.app.playback.PlaybackController
 import org.catosaur.app.library.MusicLibrary
+import org.catosaur.app.recommendation.FileKeyProvider
+import org.catosaur.app.recommendation.JdkHttpTransport
+import org.catosaur.app.recommendation.PreferencesBackend
+import org.catosaur.app.recommendation.RecommendationCache
+import org.catosaur.app.recommendation.RecommendationProvider
+import org.catosaur.app.recommendation.RecommendationSettings
 import org.catosaur.app.visual.VisualizerStore
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -44,7 +51,21 @@ internal fun showMainWindow() {
         onQueue = playback::addToQueue,
     )
     val downloads = DownloadManager()
-    val discover = DiscoverPanel(frame, downloads)
+    val keyFile = FileKeyProvider(FileKeyProvider.defaultFile())
+    val recommendationSettings = RecommendationSettings(PreferencesBackend())
+    val recommendations = RecommendationProvider(
+        settings = recommendationSettings,
+        keys = keyFile,
+        cache = RecommendationCache(
+            FileKeyProvider.defaultFile().resolveSibling("lastfm-recommendations-cache.json"),
+            clock = { System.currentTimeMillis() },
+        ),
+        libraryData = { currentLibrary?.data ?: LibraryData() },
+        isMissing = { track -> currentLibrary?.isMissing(track) ?: false },
+        transport = JdkHttpTransport(),
+        executor = RecommendationProvider.newWorker(),
+    )
+    val discover = DiscoverPanel(frame, downloads, recommendations, recommendationSettings, keyFile)
     downloads.addStatusListener { discover.showStatus(it) }
     val library = LibraryPanel(
         frame,

@@ -6,7 +6,7 @@ import org.catosaur.app.FlatButton
 import org.catosaur.app.Fonts
 import org.catosaur.app.ThemedField
 import org.catosaur.app.ThemedProgressBar
-import org.catosaur.app.SlimScrollBarUI
+import org.catosaur.app.themeScrollBars
 import org.catosaur.app.SectionHeading
 import org.catosaur.app.download.DEFAULT_DOWNLOAD_DIRECTORY
 import org.catosaur.app.download.isYouTubeUrl
@@ -49,7 +49,7 @@ internal fun buildDownloadsPanel(frame: JFrame): JComponent {
         isOpaque = false
         viewport.isOpaque = false
         border = BorderFactory.createEmptyBorder()
-        verticalScrollBar.setUI(SlimScrollBarUI())
+        themeScrollBars()
     }
     val downloadButton = FlatButton("Download MP3", primary = true)
     val folderButton = FlatButton("Browse")

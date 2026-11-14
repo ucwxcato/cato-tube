@@ -6,7 +6,7 @@ import org.catosaur.app.FlatButton
 import org.catosaur.app.Fonts
 import org.catosaur.app.Palette
 import org.catosaur.app.SectionHeading
-import org.catosaur.app.SlimScrollBarUI
+import org.catosaur.app.themeScrollBars
 import org.catosaur.app.ThemedComboBox
 import org.catosaur.app.ThemedSlider
 import org.catosaur.app.playback.AudioFeatures
@@ -159,7 +159,7 @@ internal class VisualizerPage(
         border = BorderFactory.createEmptyBorder()
         viewport.isOpaque = false
         verticalScrollBar.unitIncrement = 16
-        verticalScrollBar.ui = SlimScrollBarUI()
+        themeScrollBars()
         horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
         preferredSize = Dimension(0, 280)
     }

@@ -6,7 +6,7 @@ import org.catosaur.app.Fonts
 import org.catosaur.app.Palette
 import org.catosaur.app.SectionHeading
 import org.catosaur.app.SegmentedControl
-import org.catosaur.app.SlimScrollBarUI
+import org.catosaur.app.themeScrollBars
 import org.catosaur.app.SmoothTable
 import org.catosaur.app.ThemedComboBox
 import org.catosaur.app.ThemedField
@@ -701,7 +701,7 @@ internal fun trackScrollPane(table: JTable): JScrollPane = JScrollPane(table).ap
     columnHeader.background = Color(0, 0, 0, 0)
     isOpaque = false
     horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-    verticalScrollBar.setUI(SlimScrollBarUI())
+    themeScrollBars()
 }
 
 internal fun formatDuration(ms: Long?): String {

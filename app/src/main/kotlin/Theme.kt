@@ -1429,7 +1429,22 @@ internal class ThemedMenuSeparator : JComponent() {
 }
 
 /** Thin rounded scrollbar without arrow buttons. */
+/** Gives both scroll bars of this pane the app's slim, palette-colored look. Use it for every scroll pane. */
+internal fun javax.swing.JScrollPane.themeScrollBars() {
+    verticalScrollBar.setUI(SlimScrollBarUI())
+    horizontalScrollBar.setUI(SlimScrollBarUI())
+}
+
 internal class SlimScrollBarUI : BasicScrollBarUI() {
+    /**
+     * The default look and feel paints a scroll bar opaque and white, and that white showed as the track.
+     * Making the bar transparent leaves only the palette-colored thumb visible.
+     */
+    override fun installUI(c: JComponent) {
+        super.installUI(c)
+        c.isOpaque = false
+    }
+
     override fun createDecreaseButton(orientation: Int): JButton = zeroSizeButton()
     override fun createIncreaseButton(orientation: Int): JButton = zeroSizeButton()
 
