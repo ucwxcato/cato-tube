@@ -9,6 +9,7 @@ import org.catosaur.app.ThemedProgressBar
 import org.catosaur.app.themeScrollBars
 import org.catosaur.app.SectionHeading
 import org.catosaur.app.download.DEFAULT_DOWNLOAD_DIRECTORY
+import org.catosaur.app.download.DownloadManager
 import org.catosaur.app.download.isYouTubeUrl
 import org.catosaur.app.download.ytDlpDownloadCommand
 import java.awt.BorderLayout
@@ -30,7 +31,7 @@ import javax.swing.JTextArea
 import javax.swing.SwingUtilities
 
 /** The manual URL download workflow. Behavior is unchanged from the original single-window version. */
-internal fun buildDownloadsPanel(frame: JFrame): JComponent {
+internal fun buildDownloadsPanel(frame: JFrame, downloads: DownloadManager): JComponent {
     var outputDirectory = DEFAULT_DOWNLOAD_DIRECTORY
     val urlField = ThemedField().apply { placeholder = "Paste a YouTube link" }
     val folderField = ThemedField(outputDirectory.toString()).apply {
@@ -44,6 +45,11 @@ internal fun buildDownloadsPanel(frame: JFrame): JComponent {
         isOpaque = false
         font = Fonts.mono(13)
         foreground = Palette.text
+    }
+    // Downloads started from Discover report here too: their status lines and yt-dlp output.
+    downloads.addLogListener { line ->
+        log.append(line + "\n")
+        log.caretPosition = log.document.length
     }
     val logScroll = JScrollPane(log).apply {
         isOpaque = false

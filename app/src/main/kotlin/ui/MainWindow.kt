@@ -94,10 +94,11 @@ internal fun showMainWindow() {
             discover,
             playlists,
             queue,
-            buildDownloadsPanel(frame),
+            buildDownloadsPanel(frame, downloads),
             visualizerPage,
         ),
     )
+    downloads.addCountListener { count -> nav.setCount("Downloads", count) }
     playback.addQueueListener { now, upcoming ->
         SwingUtilities.invokeLater {
             queue.update(now, upcoming)

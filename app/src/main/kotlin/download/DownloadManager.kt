@@ -44,6 +44,8 @@ internal class DownloadManager {
     @Volatile private var cancelRequested = false
     private val statusListeners = CopyOnWriteArrayList<(String) -> Unit>()
     private val activityListeners = CopyOnWriteArrayList<(DownloadActivity?) -> Unit>()
+    private val logListeners = CopyOnWriteArrayList<(String) -> Unit>()
+    private val countListeners = CopyOnWriteArrayList<(Int) -> Unit>()
     private val unfinishedJobs = AtomicInteger(0)
     private val worker: ExecutorService = Executors.newSingleThreadExecutor { task ->
         Thread(task, "download-worker").apply { isDaemon = true }
@@ -51,6 +53,16 @@ internal class DownloadManager {
 
     fun addStatusListener(listener: (String) -> Unit) {
         statusListeners += listener
+    }
+
+    /** Receives every status message and every yt-dlp output line, in order. Called on the EDT. */
+    fun addLogListener(listener: (String) -> Unit) {
+        logListeners += listener
+    }
+
+    /** Receives how many downloads are queued or running, each time that number changes. Called on the EDT. */
+    fun addCountListener(listener: (Int) -> Unit) {
+        countListeners += listener
     }
 
     /** Receives the running job's progress, and null once no job is left. Called on the EDT. */
@@ -85,6 +97,7 @@ internal class DownloadManager {
         }
         status("Queued \"${request.title}\".")
         unfinishedJobs.incrementAndGet()
+        countChanged()
         worker.submit { runJob(lib, request) }
     }
 
@@ -119,6 +132,7 @@ internal class DownloadManager {
         } finally {
             deleteStaging(staging)
             if (unfinishedJobs.decrementAndGet() == 0) activity(null)
+            countChanged()
         }
     }
 
@@ -141,6 +155,7 @@ internal class DownloadManager {
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
                     lastOutputAt.set(System.nanoTime())
+                    emitLog(line)
                     val percent = PROGRESS_LINE.find(line)?.groupValues?.get(1)?.toFloatOrNull()
                     when {
                         percent != null -> activity(DownloadActivity(title, (percent / 100f).coerceIn(0f, 1f)))
@@ -192,6 +207,20 @@ internal class DownloadManager {
     private fun status(message: String) {
         SwingUtilities.invokeLater {
             statusListeners.forEach { it(message) }
+            logListeners.forEach { it(message) }
+        }
+    }
+
+    private fun emitLog(line: String) {
+        SwingUtilities.invokeLater {
+            logListeners.forEach { it(line) }
+        }
+    }
+
+    private fun countChanged() {
+        val count = unfinishedJobs.get()
+        SwingUtilities.invokeLater {
+            countListeners.forEach { it(count) }
         }
     }
 
